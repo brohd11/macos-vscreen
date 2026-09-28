@@ -2,6 +2,7 @@ APP := build/VScreen.app
 BIN := $(APP)/Contents/MacOS/vscreen
 SOURCES := $(wildcard Sources/*.m)
 SIGNING_IDENTITY ?= -
+ARCHS ?=
 CFLAGS := -fobjc-arc -fmodules -fmodules-cache-path=build/ModuleCache -Wall -Wextra -Werror -Wno-deprecated-declarations -mmacosx-version-min=14.0
 FRAMEWORKS := -framework Cocoa -framework CoreGraphics -framework ScreenCaptureKit -framework AVFoundation -framework CoreMedia -framework Carbon
 
@@ -10,7 +11,7 @@ all: $(BIN)
 
 $(BIN): $(SOURCES) $(wildcard Sources/*.h) Resources/Info.plist Makefile
 	mkdir -p $(APP)/Contents/MacOS
-	xcrun clang $(CFLAGS) $(SOURCES) $(FRAMEWORKS) -o $@
+	xcrun clang $(CFLAGS) $(foreach a,$(ARCHS),-arch $(a)) $(SOURCES) $(FRAMEWORKS) -o $@
 	cp Resources/Info.plist $(APP)/Contents/Info.plist
 	codesign --force --sign "$(SIGNING_IDENTITY)" --identifier local.vscreen $(APP)
 	ln -sf VScreen.app/Contents/MacOS/vscreen build/vscreen

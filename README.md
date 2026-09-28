@@ -4,14 +4,13 @@ Named macOS virtual displays with floating live previews. Arrange the displays a
 
 ## Install
 
-Requires macOS 14+ and Xcode Command Line Tools to build. No third-party runtime dependencies.
+Requires macOS 14+. No third-party runtime dependencies.
 
 ```sh
-make
-make install
+curl -fsSL https://raw.githubusercontent.com/brohd11/macos-vscreen/main/install.sh | sh
 ```
 
-Installs **`/Applications/VScreen.app`** and a small forwarding shell script at **`~/.local/bin/vscreen`**. If that directory is on PATH, no alias or shell-profile edits are needed.
+Installs the latest release as **`/Applications/VScreen.app`** plus a small forwarding shell script at **`~/.local/bin/vscreen`**. If that directory is on PATH, no alias or shell-profile edits are needed. Rerun the same command to update. To build from source instead (`make && make install`), see [Building](docs/building.md).
 
 Grant Screen Recording:
 

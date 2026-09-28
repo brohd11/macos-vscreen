@@ -1,0 +1,152 @@
+name: release
+
+# Shared macOS app release, rendered from sh-templates/mac-apps. The repo supplies:
+#   scripts/package.sh VERSION BUILD OUT_DIR   writes OUT_DIR/<name>.zip and <name>.zip.sha256
+#   scripts/test.sh                            optional; runs before packaging
+#   .github/release-notes.md                   optional; appended to the generated notes
+#   cliff.toml                                 rendered changelog policy
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to embed in the manual build (MAJOR.MINOR.PATCH)
+        required: true
+        default: "0.0.0"
+        type: string
+  push:
+    tags: ['v*']
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Test and package
+    runs-on: macos-15
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Determine and validate version
+        id: version
+        env:
+          MANUAL_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          semver='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'
+          if [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
+            version="${GITHUB_REF_NAME#v}"
+            if [[ "$GITHUB_REF_NAME" != v* || ! "$version" =~ $semver ]]; then
+              echo "Release tags must use vMAJOR.MINOR.PATCH without leading zeroes." >&2
+              exit 1
+            fi
+            release_commit="$(git rev-parse "${GITHUB_REF_NAME}^{commit}")"
+            git fetch --no-tags origin '+refs/heads/main:refs/remotes/origin/main'
+            if ! git merge-base --is-ancestor "$release_commit" refs/remotes/origin/main; then
+              echo "Release tag $GITHUB_REF_NAME does not point to a commit on main." >&2
+              exit 1
+            fi
+          else
+            version="$MANUAL_VERSION"
+            if [[ ! "$version" =~ $semver ]]; then
+              echo "Manual versions must use MAJOR.MINOR.PATCH without leading zeroes." >&2
+              exit 1
+            fi
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Show build environment
+        run: |
+          sw_vers
+          xcodebuild -version
+
+      - name: Run tests
+        run: |
+          set -euo pipefail
+          if [[ -x scripts/test.sh ]]; then
+            scripts/test.sh
+          else
+            echo "no scripts/test.sh; skipping"
+          fi
+
+      - name: Build, sign, verify and archive
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: scripts/package.sh "$VERSION" "$GITHUB_RUN_NUMBER" dist
+
+      - name: Verify checksums
+        run: |
+          set -euo pipefail
+          cd dist
+          ls -l
+          for sum in *.sha256; do shasum -a 256 -c "$sum"; done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-assets
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    name: Publish GitHub Release
+    needs: build
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Release notes need tags and full history.
+          fetch-depth: 0
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-assets
+          path: dist
+
+      - name: Verify checksums
+        run: |
+          set -euo pipefail
+          cd dist
+          for sum in *.sha256; do sha256sum -c "$sum"; done
+
+      - name: Generate release notes
+        uses: orhun/git-cliff-action@v4
+        id: notes
+        with:
+          version: v2.14.2
+          config: cliff.toml
+          args: --current --strip header
+        env:
+          OUTPUT: ${{ runner.temp }}/release-notes.md
+
+      - name: Append repo release note
+        env:
+          NOTES: ${{ steps.notes.outputs.changelog }}
+        run: |
+          set -euo pipefail
+          if [[ -f .github/release-notes.md ]]; then
+            printf '\n' >> "$NOTES"
+            cat .github/release-notes.md >> "$NOTES"
+          fi
+
+      - uses: softprops/action-gh-release@v3
+        with:
+          name: ${{ github.ref_name }}
+          files: dist/*
+          body_path: ${{ steps.notes.outputs.changelog }}
+          make_latest: true

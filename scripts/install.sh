@@ -17,7 +17,8 @@ if [ -e "$target_app" ]; then
         exit 1
     fi
 fi
-if [ -e "$launcher" ] && ! cmp -s "$launcher" "$script_dir/vscreen"; then
+# Replace only a launcher written by this script or the release install.sh.
+if [ -e "$launcher" ] && [ "$(sed -n 2p "$launcher")" != "# VScreen launcher" ]; then
     echo "Refusing to overwrite a different command at $launcher." >&2
     exit 1
 fi

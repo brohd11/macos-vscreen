@@ -1,0 +1,41 @@
+# Shared release notes config. Edit this template and run render-go.sh.
+
+[changelog]
+body = """
+{% if commits | length == 0 %}\
+No user-facing changes recorded.
+{% else %}\
+{% for entry in commits | commit_groups(groups=commit_parsers_groups) %}
+### {{ entry.group }}
+
+{% for commit in entry.commits %}\
+- {% if commit.scope %}**{{ commit.scope }}:** {% endif %}{{ commit.message }}
+{% if commit.breaking_description and commit.breaking_description != commit.message %}
+{% for line in commit.breaking_description | split(pat="\n") %}\
+{{ "  " }}{{ line }}
+{% endfor %}
+{% endif %}\
+{% endfor %}\
+{% endfor %}\
+{% endif %}\
+"""
+trim = true
+render_always = true
+
+[git]
+conventional_commits = true
+filter_unconventional = true
+require_conventional = false
+split_commits = false
+protect_breaking_commits = true
+commit_parsers = [
+    { field = "breaking", pattern = "true", group = "Breaking Changes" },
+    { message = '^feat(\([^)]*\))?!?:', group = "Features" },
+    { message = '^fix(\([^)]*\))?!?:', group = "Bug Fixes" },
+    { message = '^perf(\([^)]*\))?!?:', group = "Performance" },
+    { message = ".*", skip = true },
+]
+tag_pattern = "^v.*"
+use_branch_tags = true
+topo_order = true
+sort_commits = "oldest"

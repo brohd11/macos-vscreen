@@ -126,6 +126,14 @@ static BOOL applyMode(CGVirtualDisplay *display, NSUInteger width, NSUInteger he
     return CGDisplayPixelsWide(display.displayID) == width && CGDisplayPixelsHigh(display.displayID) == height;
 }
 
+// macOS keys a display's identity (and its generated ColorSync profile) on vendor/product/serial.
+// A stable per-name serial reuses one profile per name instead of leaving a new one on every launch.
+static uint32_t serialForName(NSString *name) {
+    uint32_t hash = 2166136261u;  // FNV-1a
+    for (const char *c = name.UTF8String; *c; c++) hash = (hash ^ (uint8_t)*c) * 16777619u;
+    return hash ?: 1;
+}
+
 int VSRunDisplayHost(NSString *name, NSUInteger width, NSUInteger height, NSUInteger fps) {
     if (![VSDisplay isSupported]) return 1;
     CGVirtualDisplayDescriptor *descriptor = [NSClassFromString(@"CGVirtualDisplayDescriptor") new];
@@ -136,7 +144,7 @@ int VSRunDisplayHost(NSString *name, NSUInteger width, NSUInteger height, NSUInt
     descriptor.sizeInMillimeters = CGSizeMake(width * 25.4 / 110, height * 25.4 / 110);
     descriptor.vendorID = 0x5653;
     descriptor.productID = 1;
-    descriptor.serialNum = arc4random_uniform(UINT32_MAX - 1) + 1;
+    descriptor.serialNum = serialForName(name);
     descriptor.redPrimary = CGPointMake(0.64, 0.33);
     descriptor.greenPrimary = CGPointMake(0.30, 0.60);
     descriptor.bluePrimary = CGPointMake(0.15, 0.06);

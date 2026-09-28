@@ -9,10 +9,13 @@ FRAMEWORKS := -framework Cocoa -framework CoreGraphics -framework ScreenCaptureK
 .PHONY: all run test integration install clean
 all: $(BIN)
 
-$(BIN): $(SOURCES) $(wildcard Sources/*.h) Resources/Info.plist Makefile
-	mkdir -p $(APP)/Contents/MacOS
+ICONS := Resources/AppIcon.icns Resources/MenuBarIcon.png Resources/MenuBarIcon@2x.png
+
+$(BIN): $(SOURCES) $(wildcard Sources/*.h) Resources/Info.plist $(ICONS) Makefile
+	mkdir -p $(APP)/Contents/MacOS $(APP)/Contents/Resources
 	xcrun clang $(CFLAGS) $(foreach a,$(ARCHS),-arch $(a)) $(SOURCES) $(FRAMEWORKS) -o $@
 	cp Resources/Info.plist $(APP)/Contents/Info.plist
+	cp $(ICONS) $(APP)/Contents/Resources/
 	codesign --force --sign "$(SIGNING_IDENTITY)" --identifier local.vscreen $(APP)
 	ln -sf VScreen.app/Contents/MacOS/vscreen build/vscreen
 

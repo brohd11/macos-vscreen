@@ -24,7 +24,7 @@ vscreen quit                          # Close desktops and stop the resident app
 
 Settings may be combined on `--new NAME` or `NAME|ID`. Existing desktops can be targeted by their name or current macOS display ID; only VScreen-owned displays can be updated or closed. **`--new NAME [settings]` creates the desktop if missing, or applies the supplied settings to the existing desktop without replacing its display ID.** Unspecified settings are preserved on existing desktops; a bare `--new NAME` is a no-op when it already exists. You can repeat the same create-and-configure commands to restore a layout.
 
-Names start with a letter or underscore, followed by letters, digits, `_`, `.`, or `-`, up to 64 characters. Whitespace is excluded so plain `--list` output works with shell substitution. `screens`, `close`, and `quit` are reserved subcommands and cannot be used as names.
+Names start with a letter or underscore, followed by letters, digits, `_`, `.`, or `-`, up to 64 characters. Whitespace is excluded so plain `--list` output works with shell substitution. `screens`, `layout`, `close`, and `quit` are reserved subcommands and cannot be used as names.
 
 ## Settings
 
@@ -54,6 +54,16 @@ Successful mutations are silent and return 0. Invalid syntax returns 2; runtime 
 ## Close and quit
 
 `close` and `--close` are equivalent: both close **all tracked desktops** without quitting the resident app. `quit` and `--quit` are equivalent: both close the desktops and stop the app. The old `--close NAME...` syntax is rejected; replace bulk shell expansion with `vscreen close`, and individual closes with `vscreen NAME --close`.
+
+## Layouts
+
+```sh
+vscreen layout xreal-uw-dual          # Run ~/.vscreen/layout/xreal-uw-dual (or .sh)
+vscreen layout NAME ARGS...           # Extra arguments go to the script
+vscreen layout                        # Available layout names (alias: layout --list)
+```
+
+A layout is any executable script in `~/.vscreen/layout` (override with `VSCREEN_LAYOUT_DIR`). `layout` and `--layout` are equivalent. The client runs the script in place of itself without starting the app, so its output and exit code are the command's own. `VSCREEN_BIN` is set to the running `vscreen` binary unless it is already set, so scripts that use it work from launchers without `~/.local/bin` on PATH. A missing or non-executable layout returns 1.
 
 ## Appearance
 

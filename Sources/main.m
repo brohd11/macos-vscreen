@@ -1,6 +1,7 @@
 #import <Cocoa/Cocoa.h>
 #import "Command.h"
 #import "Controller.h"
+#import "Layout.h"
 #import "VirtualDisplay.h"
 #import "ScreenQuery.h"
 #include <signal.h>
@@ -11,6 +12,7 @@ static int client(NSArray<NSString *> *arguments) {
     if (!command) { fprintf(stderr, "%s\n", error.UTF8String); return 2; }
     NSString *action = command[@"action"];
     if ([action isEqual:@"help"]) { fputs(VSUsage().UTF8String, stdout); return 0; }
+    if ([action isEqual:@"layout"]) return VSRunLayout(command);
     if ([action isEqual:@"screens"]) {
         NSDictionary *reply = VSScreenQuery(command, VSSystemDisplays());
         if (![reply[@"ok"] boolValue]) { fprintf(stderr, "%s\n", [reply[@"error"] UTF8String]); return 1; }

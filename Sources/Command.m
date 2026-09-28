@@ -15,6 +15,8 @@ NSString *VSUsage(void) {
       "  vscreen screens ID --name        Display name\n"
       "  vscreen screens ID --origin      Display origin as XxY\n"
       "  vscreen screens ID --size        Logical display size as WxH\n"
+      "  vscreen layout NAME [ARGS...]    Run layout script NAME[.sh] from ~/.vscreen/layout (alias: --layout)\n"
+      "  vscreen layout --list            Available layout names\n"
       "  vscreen --check                  Report the app's Screen Recording permission\n"
       "  vscreen --request-permissions    Request Screen Recording for VScreen\n"
       "  vscreen quit                     Close all owned desktops and stop app (alias: --quit)\n"
@@ -76,6 +78,15 @@ NSDictionary *VSParseCommand(NSArray<NSString *> *args, NSString **error) {
         if (error) *error = @"Invalid screens query. Run vscreen --help.";
         return nil;
     }
+    if ([first isEqual:@"layout"] || [first isEqual:@"--layout"]) {
+        if (args.count == 1 || (args.count == 2 && [args[1] isEqual:@"--list"]))
+            return @{@"action": @"layout", @"query": @"list"};
+        if (validName(args[1]))
+            return @{@"action": @"layout", @"name": args[1],
+                     @"arguments": [args subarrayWithRange:NSMakeRange(2, args.count - 2)]};
+        if (error) *error = @"Invalid layout name. Run vscreen --help.";
+        return nil;
+    }
     if ([first isEqual:@"--list"] && (args.count == 1 || (args.count == 2 && [args[1] isEqual:@"--json"])))
         return @{@"action": @"list", @"json": @(args.count == 2)};
     NSDictionary *simple = @{@"--screens": @"screens", @"--check": @"check", @"quit": @"quit", @"--quit": @"quit", @"--request-permissions": @"permissions"};
@@ -90,8 +101,8 @@ NSDictionary *VSParseCommand(NSArray<NSString *> *args, NSString **error) {
         NSInteger displayID;
         if (!name || (!validName(name) && (create || !VSNumber(name, 1, UINT32_MAX, &displayID))))
             problem = @"Expected a display name or owned display ID. Run vscreen --help.";
-        else if ([@[@"screens", @"close", @"quit"] containsObject:name])
-            problem = @"The names 'screens', 'close', and 'quit' are reserved for subcommands.";
+        else if ([@[@"screens", @"layout", @"close", @"quit"] containsObject:name])
+            problem = @"The names 'screens', 'layout', 'close', and 'quit' are reserved for subcommands.";
         if (!problem && !create && args.count == 2 && [args[1] isEqual:@"--close"])
             return @{@"action": @"close", @"names": @[name]};
         NSMutableDictionary *changes = [NSMutableDictionary new];

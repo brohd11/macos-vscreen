@@ -10,6 +10,8 @@ make clean      # remove build/
 
 `make install` installs **`/Applications/VScreen.app`** and a small forwarding shell script at **`~/.local/bin/vscreen`**. If that directory is on PATH, no alias or shell-profile edits are needed. Otherwise invoke `~/.local/bin/vscreen` directly.
 
+The app icon (`Resources/AppIcon.icns`) and the menu-bar template images (`Resources/MenuBarIcon*.png`) are checked in. An alternate `-Inset` style of each sits beside them but isn't bundled. After changing the drawing, regenerate them with `swift scripts/make-icons.swift`.
+
 After installing, grant Screen Recording as described in [Permissions](permissions.md).
 
 ## Signing identity

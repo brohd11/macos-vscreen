@@ -48,7 +48,9 @@ class CLITests(unittest.TestCase):
                  ("UWLeft", "--border-color"), ("UWLeft", "--border-color", "red"),
                  ("UWLeft", "--border-color", "#123"), ("UWLeft", "--border-color", "#gg0000"),
                  ("UWLeft", "--border-color", "none", "--border-color", "#123456"),
-                 ("UWLeft", "--shadow", "--no-shadow")]
+                 ("UWLeft", "--shadow", "--no-shadow"),
+                 ("layout", "../escape"), ("layout", ""), ("--layout", "a/b"),
+                 ("layout", "--list", "extra"), ("--new", "layout")]
         for args in cases:
             with self.subTest(args=args):
                 result = self.run_cli(*args)
@@ -139,6 +141,44 @@ class CLITests(unittest.TestCase):
         absent_id = next(n for n in range(1, len(displays) + 2) if n not in {d["id"] for d in displays})
         absent = self.run_cli("screens", str(absent_id), "--origin")
         self.assertEqual((absent.returncode, absent.stdout), (1, ""))
+        self.assertFalse((pathlib.Path(self.directory.name) / "control.sock").exists())
+
+    def test_layout_scripts_run_without_resident_app(self):
+        layouts = pathlib.Path(self.directory.name) / "layouts"
+        self.env["VSCREEN_LAYOUT_DIR"] = str(layouts)
+        self.env.pop("VSCREEN_BIN", None)
+        self.assertEqual((self.run_cli("layout").returncode, self.run_cli("layout").stdout), (0, ""))
+
+        layouts.mkdir()
+        log = layouts / "log"
+        (layouts / "plain").write_text(f'#!/bin/sh\nprintf "%s\\n" "$VSCREEN_BIN" "$@" > "{log}"\nexit 7\n')
+        (layouts / "dual.sh").write_text("#!/bin/sh\necho dual\n")
+        (layouts / "notexec.sh").write_text("#!/bin/sh\n")
+        (layouts / ".hidden").write_text("#!/bin/sh\n")
+        (layouts / "folder").mkdir()
+        for name in ("plain", "dual.sh", ".hidden"):
+            (layouts / name).chmod(0o755)
+
+        for args in [("layout",), ("layout", "--list"), ("--layout", "--list")]:
+            with self.subTest(args=args):
+                self.assertEqual(self.run_cli(*args).stdout, "dual\nplain\n")
+
+        result = self.run_cli("layout", "plain", "--flag", "two words")
+        self.assertEqual(result.returncode, 7, result.stderr)
+        bin_path, *forwarded = log.read_text().splitlines()
+        self.assertEqual(os.path.realpath(bin_path), os.path.realpath(BIN))
+        self.assertEqual(forwarded, ["--flag", "two words"])
+
+        self.env["VSCREEN_BIN"] = "/custom/vscreen"
+        self.run_cli("--layout", "plain")
+        self.assertEqual(log.read_text().splitlines(), ["/custom/vscreen"])
+
+        self.assertEqual(self.run_cli("layout", "dual").stdout, "dual\n")
+        for name, message in [("missing", "No layout"), ("notexec", "chmod +x"), ("folder", "No layout")]:
+            with self.subTest(name=name):
+                failed = self.run_cli("layout", name)
+                self.assertEqual((failed.returncode, failed.stdout), (1, ""))
+                self.assertIn(message, failed.stderr)
         self.assertFalse((pathlib.Path(self.directory.name) / "control.sock").exists())
 
 

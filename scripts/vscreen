@@ -1,0 +1,3 @@
+#!/bin/sh
+# VScreen launcher
+exec /Applications/VScreen.app/Contents/MacOS/vscreen "$@"

@@ -1,0 +1,15 @@
+# Window controls
+
+- **Option-drag:** move a preview.
+- **Command–Option–T:** toggle all title bars.
+- **Command–Option–H:** hide/show all previews; displays remain connected.
+- **Command–Option–Q:** quit and remove owned displays.
+- **Red traffic light:** close that desktop and remove its display.
+
+Previews do not capture, confine, warp, or forward mouse/keyboard input. Move the pointer onto a virtual display across its arranged screen edge as with any other display.
+
+## App lifecycle
+
+The app stays available for CLI commands after the last desktop closes; use `vscreen quit` to exit. Nothing is installed as a login item or background service. Desktop names/settings live only for that app session; save a shell script to recreate a layout.
+
+System Settings can show a stale arrangement after removal; quit and reopen Settings if `vscreen --screens` confirms the display is gone.

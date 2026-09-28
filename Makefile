@@ -4,7 +4,7 @@ SOURCES := $(wildcard Sources/*.m)
 SIGNING_IDENTITY ?= -
 ARCHS ?=
 CFLAGS := -fobjc-arc -fmodules -fmodules-cache-path=build/ModuleCache -Wall -Wextra -Werror -Wno-deprecated-declarations -mmacosx-version-min=14.0
-FRAMEWORKS := -framework Cocoa -framework CoreGraphics -framework ScreenCaptureKit -framework AVFoundation -framework CoreMedia -framework Carbon
+FRAMEWORKS := -framework Cocoa -framework CoreGraphics -framework ScreenCaptureKit -framework CoreMedia -framework QuartzCore -framework Carbon
 
 .PHONY: all run test integration install clean
 all: $(BIN)

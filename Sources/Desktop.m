@@ -1,6 +1,6 @@
 #import "Desktop.h"
 #import <ScreenCaptureKit/ScreenCaptureKit.h>
-#import <AVFoundation/AVFoundation.h>
+#import <QuartzCore/QuartzCore.h>
 
 @implementation VSWindow
 // AppKit normally keeps titled windows below the menu bar. This is intentional
@@ -11,10 +11,11 @@
 }
 - (BOOL)canBecomeKeyWindow { return NO; }
 - (BOOL)canBecomeMainWindow { return NO; }
+- (BOOL)isOpaque { return YES; }
 @end
 
 @interface VSPreview : NSView
-@property(nonatomic, strong) AVSampleBufferDisplayLayer *video;
+@property(nonatomic, strong) CALayer *surface;
 @property(nonatomic, strong) NSTextField *message;
 @property(nonatomic, strong) CALayer *outline;
 @property(nonatomic, copy) NSString *borderColor;
@@ -25,9 +26,14 @@
     if (!(self = [super initWithFrame:frame])) return nil;
     self.wantsLayer = YES;
     self.layer.backgroundColor = NSColor.blackColor.CGColor;
-    _video = [AVSampleBufferDisplayLayer new];
-    _video.videoGravity = AVLayerVideoGravityResizeAspect;
-    [self.layer addSublayer:_video];
+    // Opaque layers let WindowServer skip blending whatever is behind a preview.
+    self.layer.opaque = YES;
+    // Frames go straight onto a plain layer. An AVSampleBufferDisplayLayer, even an idle one,
+    // keeps WindowServer compositing every refresh (~18% CPU per window, measured 2026-09-28).
+    _surface = [CALayer new];
+    _surface.opaque = YES;
+    _surface.contentsGravity = kCAGravityResizeAspect;
+    [self.layer addSublayer:_surface];
     _outline = [CALayer new];
     _outline.zPosition = 1;
     [self.layer addSublayer:_outline];
@@ -52,6 +58,7 @@
     [CATransaction commit];
     self.needsLayout = YES;
 }
+- (BOOL)isOpaque { return YES; }
 - (void)viewDidChangeBackingProperties {
     [super viewDidChangeBackingProperties];
     self.needsLayout = YES;
@@ -60,7 +67,7 @@
     [super layout];
     [CATransaction begin];
     [CATransaction setDisableActions:YES];
-    _video.frame = self.bounds;
+    _surface.frame = self.bounds;
     _outline.frame = self.bounds;
     CGFloat scale = self.window.backingScaleFactor ?: 1;
     _outline.contentsScale = scale;
@@ -84,8 +91,10 @@
     VSWindow *_window;
     VSPreview *_preview;
     SCStream *_stream;
+    NSUInteger _fps;
     BOOL _stopped;
     BOOL _receivedFrame;
+    id _frame;  // Holds the shown frame's surface until the next one replaces it.
     NSString *_captureError;
     void (^_captureCompletion)(NSError *error);
 }
@@ -117,6 +126,7 @@
     return self;
 }
 - (void)startCaptureWithFPS:(NSUInteger)fps completion:(void (^)(NSError *))completion {
+    _fps = fps;
     _captureCompletion = completion;
     _captureError = nil;
     _receivedFrame = NO;
@@ -128,12 +138,16 @@
         if (done) done(error);
     }];
 }
+- (void)clearFrame {
+    _preview.surface.contents = nil;
+    _frame = nil;
+}
 - (void)pauseCapture:(void (^)(void))completion {
     SCStream *old = _stream;
     _stream = nil;
     _receivedFrame = NO;
     [old removeStreamOutput:self type:SCStreamOutputTypeScreen error:nil];
-    [_preview.video flushAndRemoveImage];
+    [self clearFrame];
     if (!old) { completion(); return; }
     [old stopCaptureWithCompletionHandler:^(NSError *error) {
         (void)error;
@@ -165,16 +179,7 @@
                 if (app.processID == getpid()) [excluded addObject:app];
             SCContentFilter *filter = [[SCContentFilter alloc] initWithDisplay:display
                 excludingApplications:excluded exceptingWindows:@[]];
-            SCStreamConfiguration *configuration = [SCStreamConfiguration new];
-            configuration.width = CGDisplayPixelsWide(display.displayID);
-            configuration.height = CGDisplayPixelsHigh(display.displayID);
-            configuration.minimumFrameInterval = CMTimeMake(1, (int32_t)fps);
-            configuration.queueDepth = 3;
-            configuration.pixelFormat = kCVPixelFormatType_32BGRA;
-            configuration.showsCursor = YES;
-            configuration.capturesAudio = NO;
-            configuration.scalesToFit = YES;
-            self->_stream = [[SCStream alloc] initWithFilter:filter configuration:configuration delegate:self];
+            self->_stream = [[SCStream alloc] initWithFilter:filter configuration:[self streamConfiguration] delegate:self];
             NSError *outputError = nil;
             if (![self->_stream addStreamOutput:self type:SCStreamOutputTypeScreen
                             sampleHandlerQueue:dispatch_get_main_queue() error:&outputError]) {
@@ -190,17 +195,53 @@
         });
     }];
 }
+// Capture only the pixels the preview can show, and trickle frames while it cannot be seen
+// (hidden, off-screen, or covered), so WindowServer is not compositing frames nobody sees.
+- (SCStreamConfiguration *)streamConfiguration {
+    CGDirectDisplayID display = _display.displayID;
+    double displayW = CGDisplayPixelsWide(display), displayH = CGDisplayPixelsHigh(display);
+    NSSize backing = [_preview convertSizeToBacking:_preview.bounds.size];
+    double scale = MIN(1, MIN(backing.width / displayW, backing.height / displayH));
+    BOOL seen = (_window.occlusionState & NSWindowOcclusionStateVisible) != 0;
+    SCStreamConfiguration *configuration = [SCStreamConfiguration new];
+    configuration.width = (size_t)MAX(2, round(displayW * scale));
+    configuration.height = (size_t)MAX(2, round(displayH * scale));
+    configuration.minimumFrameInterval = seen ? CMTimeMake(1, (int32_t)MAX(_fps, 1)) : CMTimeMake(1, 1);
+    configuration.queueDepth = 3;
+    configuration.pixelFormat = kCVPixelFormatType_32BGRA;
+    configuration.showsCursor = YES;
+    configuration.capturesAudio = NO;
+    configuration.scalesToFit = YES;
+    return configuration;
+}
+- (void)updateStreamConfiguration {
+    if (_stopped || !_stream) return;
+    [_stream updateConfiguration:[self streamConfiguration] completionHandler:^(NSError *error) {
+        if (error) fprintf(stderr, "Capture update failed: %s\n", error.localizedDescription.UTF8String);
+    }];
+}
+- (void)scheduleStreamUpdate {
+    // Live resizing fires continuously; reconfigure once it settles.
+    [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(updateStreamConfiguration) object:nil];
+    [self performSelector:@selector(updateStreamConfiguration) withObject:nil afterDelay:0.2];
+}
+- (void)windowDidResize:(NSNotification *)notification { (void)notification; [self scheduleStreamUpdate]; }
+- (void)windowDidChangeBackingProperties:(NSNotification *)notification { (void)notification; [self scheduleStreamUpdate]; }
+- (void)windowDidChangeOcclusionState:(NSNotification *)notification { (void)notification; [self updateStreamConfiguration]; }
 - (void)stream:(SCStream *)stream didOutputSampleBuffer:(CMSampleBufferRef)sample ofType:(SCStreamOutputType)type {
     if (_stopped || stream != _stream || type != SCStreamOutputTypeScreen || !CMSampleBufferIsValid(sample)) return;
     NSArray *attachments = (__bridge NSArray *)CMSampleBufferGetSampleAttachmentsArray(sample, false);
     if (attachments.count == 0 || !attachments[0][SCStreamFrameInfoStatus]
         || [attachments[0][SCStreamFrameInfoStatus] integerValue] != SCFrameStatusComplete) return;
-    if (_preview.video.status == AVQueuedSampleBufferRenderingStatusFailed) [_preview.video flush];
-    if (!_preview.video.readyForMoreMediaData) return;
-    CFArrayRef array = CMSampleBufferGetSampleAttachmentsArray(sample, true);
-    CFDictionarySetValue((CFMutableDictionaryRef)CFArrayGetValueAtIndex(array, 0),
-                         kCMSampleAttachmentKey_DisplayImmediately, kCFBooleanTrue);
-    [_preview.video enqueueSampleBuffer:sample];
+    CVPixelBufferRef buffer = CMSampleBufferGetImageBuffer(sample);
+    IOSurfaceRef surface = buffer ? CVPixelBufferGetIOSurface(buffer) : NULL;
+    if (!surface) return;
+    // Keep the sample alive so ScreenCaptureKit does not reuse its surface while it is on screen.
+    _frame = (__bridge id)sample;
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+    _preview.surface.contents = (__bridge id)surface;
+    [CATransaction commit];
     if (!_receivedFrame) {
         printf("%s: live preview ready\n", _window.title.UTF8String);
         fflush(stdout);
@@ -236,6 +277,7 @@
 - (void)stop {
     if (_stopped) return;
     _stopped = YES;
+    [NSObject cancelPreviousPerformRequestsWithTarget:self];
     void (^done)(NSError *) = _captureCompletion;
     _captureCompletion = nil;
     if (done) done([NSError errorWithDomain:@"VScreen" code:4 userInfo:@{NSLocalizedDescriptionKey: @"Desktop closed during capture startup."}]);
@@ -243,7 +285,7 @@
     [_stream stopCaptureWithCompletionHandler:^(NSError *error) { (void)error; }];
     [_stream removeStreamOutput:self type:SCStreamOutputTypeScreen error:nil];
     _stream = nil;
-    [_preview.video flushAndRemoveImage];
+    [self clearFrame];
     [_display invalidate];
     _display = nil;
 }

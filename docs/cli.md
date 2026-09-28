@@ -35,7 +35,7 @@ Names start with a letter or underscore, followed by letters, digits, `_`, `.`, 
 | `--position XxY` | Preview content position in the global desktop coordinate system |
 | `--origin XxY` | Virtual display position in macOS's display arrangement |
 | `--borderless` / `--titled` | Hide/show title bar and traffic lights |
-| `--hide` / `--show` | Hide/show the preview while keeping its display connected |
+| `--hide` / `--show` | Hide/show the preview while keeping its display connected. A preview whose screen disconnects hides itself in place; `--show` restores it |
 | `--border-color '#RRGGBB'` / `--border-color none` | Optional one-pixel preview edge; default none |
 | `--shadow` / `--no-shadow` | Native window shadow; default off |
 

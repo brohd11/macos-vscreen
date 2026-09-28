@@ -119,6 +119,21 @@ with tempfile.TemporaryDirectory(prefix="vs-integration-", dir="/tmp") as direct
             race_id = json.loads(run("Race", env=env).stdout)["id"]
             run(str(race_id), "--close", env=env)
             assert race_id not in screens() and run("--list", env=env).stdout == "UWRight\n"
+            # A preview whose screen disconnects hides in place instead of being moved by macOS.
+            run("--new", "Host", "--resolution", "800x600", "--hide", env=env)
+            host_origin = json.loads(run("Host", env=env).stdout)["origin"]
+            guest_position = [host_origin[0] + 100, host_origin[1] + 100]
+            run("--new", "Guest", "--resolution", "800x600", "--size", "240x135",
+                "--position", f"{guest_position[0]}x{guest_position[1]}", env=env)
+            guest = json.loads(run("Guest", env=env).stdout)
+            assert guest["visible"] is True and guest["position"] == guest_position, guest
+            run("Host", "--close", env=env)
+            wait_for(lambda: not json.loads(run("Guest", env=env).stdout)["visible"])
+            assert json.loads(run("Guest", env=env).stdout)["position"] == guest_position
+            run("Guest", "--show", env=env)
+            shown = json.loads(run("Guest", env=env).stdout)
+            assert shown["visible"] is True and shown["position"] == guest_position, shown
+            run("Guest", "--close", env=env)
             run("--new", "Race", "--resolution", "800x600", "--hide", env=env)
             run("close", env=env)
             assert run("--list", env=env).stdout == ""
@@ -143,7 +158,7 @@ with tempfile.TemporaryDirectory(prefix="vs-integration-", dir="/tmp") as direct
             wait_for(lambda: host_ready(directory, host.pid))
             run("--quit", env=env)
             assert host.wait(timeout=10) == 0
-            print("Integration passed: named/ID targeting, border/shadow settings, lifecycle, resolution, geometry, concurrency, close-all/quit aliases, existing display preservation.")
+            print("Integration passed: named/ID targeting, border/shadow settings, lifecycle, displaced-preview hiding, resolution, geometry, concurrency, close-all/quit aliases, existing display preservation.")
         finally:
             if host.poll() is None:
                 host.terminate()

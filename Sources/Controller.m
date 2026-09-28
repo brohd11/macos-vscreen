@@ -46,6 +46,7 @@ NSArray<NSDictionary *> *VSSystemDisplays(void) {
 @interface VSController ()
 - (void)finish;
 - (void)handleHotKey:(UInt32)key;
+- (void)displaysWillChange;
 @end
 @implementation VSController {
     NSMutableDictionary<NSString *, VSDesktop *> *_desktops;
@@ -54,6 +55,41 @@ NSArray<NSDictionary *> *VSSystemDisplays(void) {
     EventHandlerRef _eventHandler;
     dispatch_source_t _interrupt, _terminate;
     BOOL _stopping, _quitting;
+    NSMutableDictionary<NSString *, NSArray *> *_homes;  // name -> @[screen display ID, content rect]
+}
+static void displaysReconfigured(CGDirectDisplayID display, CGDisplayChangeSummaryFlags flags, void *context) {
+    (void)display;
+    if (flags & kCGDisplayBeginConfigurationFlag) [(__bridge VSController *)context displaysWillChange];
+}
+// Runs before AppKit relocates windows off a disconnected screen, so record which screen each
+// visible preview is on and where.
+- (void)displaysWillChange {
+    if (_homes || _stopping) return;
+    _homes = [NSMutableDictionary new];
+    for (NSString *name in _desktops) {
+        NSWindow *window = _desktops[name].window;
+        NSNumber *screen = window.screen.deviceDescription[@"NSScreenNumber"];
+        if (window.visible && screen) _homes[name] = @[screen, [NSValue valueWithRect:contentRect(window)]];
+    }
+}
+// Hide previews whose screen went away instead of letting macOS pile them onto a remaining screen.
+// Their position is kept, so `NAME --show` restores them once the screen is back.
+- (void)screensChanged:(NSNotification *)notification {
+    (void)notification;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        NSDictionary<NSString *, NSArray *> *homes = self->_homes;
+        self->_homes = nil;
+        if (self->_stopping) return;
+        NSArray *online = VSOnlineDisplays();
+        for (NSString *name in homes) {
+            VSDesktop *desktop = self->_desktops[name];
+            // Other displays may slide into the gap, so check the screen itself rather than the rect.
+            if (!desktop || [online containsObject:homes[name][0]]) continue;
+            NSRect home = [homes[name][1] rectValue];
+            [desktop.window setFrame:[desktop.window frameRectForContentRect:home] display:NO];
+            [desktop.window orderOut:nil];
+        }
+    });
 }
 static OSStatus hotKey(EventHandlerCallRef handler, EventRef event, void *context) {
     (void)handler;
@@ -100,6 +136,9 @@ static OSStatus hotKey(EventHandlerCallRef handler, EventRef event, void *contex
         }
         if (status != noErr) fprintf(stderr, "Some global shortcuts are unavailable; CLI control still works.\n");
     }
+    CGDisplayRegisterReconfigurationCallback(displaysReconfigured, (__bridge void *)self);
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(screensChanged:)
+        name:NSApplicationDidChangeScreenParametersNotification object:nil];
     signal(SIGINT, SIG_IGN); signal(SIGTERM, SIG_IGN);
     _interrupt = dispatch_source_create(DISPATCH_SOURCE_TYPE_SIGNAL, SIGINT, 0, dispatch_get_main_queue());
     _terminate = dispatch_source_create(DISPATCH_SOURCE_TYPE_SIGNAL, SIGTERM, 0, dispatch_get_main_queue());
@@ -300,6 +339,7 @@ static OSStatus hotKey(EventHandlerCallRef handler, EventRef event, void *contex
 - (void)finish {
     if (_stopping) return;
     _stopping = YES;
+    CGDisplayRemoveReconfigurationCallback(displaysReconfigured, (__bridge void *)self);
     for (VSDesktop *desktop in _desktops.allValues) [desktop stop];
     [_desktops removeAllObjects];
     [_control stop];

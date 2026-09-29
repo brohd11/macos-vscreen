@@ -133,21 +133,44 @@ jobs:
           cd dist
           for sum in *.sha256; do sha256sum -c "$sum"; done
 
+      # Prereleases cover changes since the previous tag. Full releases cover changes since the
+      # previous full release, folding in any prereleases between (git-cliff's --current can't).
+      - name: Select release notes range
+        id: range
+        env:
+          TAG: ${{ github.ref_name }}
+          PRERELEASE: ${{ needs.build.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+          if [[ "$PRERELEASE" == "true" ]]; then
+            args="--current"
+          else
+            from="$(git describe --tags --abbrev=0 --match 'v*' --exclude '*-*' "$TAG^" 2>/dev/null \
+              || git rev-list --max-parents=0 "$TAG" | tail -1)"
+            args="--ignore-tags - $from..$TAG"
+          fi
+          echo "args=$args --strip header" >> "$GITHUB_OUTPUT"
+
+      # Missing notes should not block a release; the next step falls back to a placeholder.
       - name: Generate release notes
         uses: orhun/git-cliff-action@v4
-        id: notes
+        continue-on-error: true
         with:
           version: v2.14.2
           config: cliff.toml
-          args: --current --strip header
+          args: ${{ steps.range.outputs.args }}
         env:
           OUTPUT: ${{ runner.temp }}/release-notes.md
 
-      - name: Append repo release note
+      - name: Finalize release notes
         env:
-          NOTES: ${{ steps.notes.outputs.changelog }}
+          NOTES: ${{ runner.temp }}/release-notes.md
         run: |
           set -euo pipefail
+          if [[ ! -s "$NOTES" ]]; then
+            echo "::warning::git-cliff failed; publishing without generated notes"
+            echo "Release notes could not be generated." > "$NOTES"
+          fi
           if [[ -f .github/release-notes.md ]]; then
             printf '\n' >> "$NOTES"
             cat .github/release-notes.md >> "$NOTES"
@@ -157,6 +180,6 @@ jobs:
         with:
           name: ${{ github.ref_name }}
           files: dist/*
-          body_path: ${{ steps.notes.outputs.changelog }}
+          body_path: ${{ runner.temp }}/release-notes.md
           prerelease: ${{ needs.build.outputs.prerelease }}
           make_latest: ${{ needs.build.outputs.prerelease == 'true' && 'false' || 'true' }}

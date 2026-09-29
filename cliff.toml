@@ -37,5 +37,4 @@ commit_parsers = [
 ]
 tag_pattern = "^v.*"
 use_branch_tags = true
-topo_order = true
 sort_commits = "oldest"

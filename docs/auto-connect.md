@@ -54,13 +54,13 @@ vscreen hooks --run    # Run them now in this terminal (VSCREEN_EVENT=manual); e
 
 ## XREAL example
 
-XREAL glasses connect in 16:9 mode. The `xreal-uw` preset installs a hook that applies the [dual layout](xreal-layouts.md) once they're switched to 32:9 ultrawide, and closes VScreen's desktops otherwise:
+XREAL glasses connect in 16:9 mode. The `xreal-uw` preset installs a hook that applies [`xreal-uw-dual-32`](xreal-layouts.md) in 32:9 mode and `xreal-uw-dual-21` in 21:9 mode (which `--aspect` reports as `64:27`), and closes VScreen's desktops otherwise:
 
 ```sh
-vscreen generate xreal-uw         # hooks/xreal-uw.sh, layout/xreal-uw-dual.sh, layout/xreal-uw-triple.sh
+vscreen generate xreal-uw         # hooks/xreal-uw.sh + layout/xreal-uw-{dual-32,triple-32,dual-21}.sh
 vscreen hooks --enable xreal-uw
 ```
 
-`generate` never overwrites a file you've edited. If any target differs from the preset, it lists those files and writes nothing; remove them to regenerate. Edit the hook in `~/.vscreen/hooks/xreal-uw.sh`, e.g. to apply `xreal-uw-triple` instead.
+`generate` never overwrites a file you've edited. If any target differs from the preset, it lists those files and writes nothing; remove them to regenerate. Edit the hook in `~/.vscreen/hooks/xreal-uw.sh`, e.g. to apply `xreal-uw-triple-32` in 32:9 mode instead.
 
-The layout is idempotent: it reuses `UWLeft`/`UWRight`, so repeated runs just reapply the same arrangement. When the glasses are reconnected in ultrawide mode, the layout places the previews and shows them again.
+The layout is idempotent: it reuses `Xreal-Virtual-Left`/`Xreal-Virtual-Right`, so repeated runs just reapply the same arrangement. When the glasses are reconnected in ultrawide mode, the layout places the previews and shows them again.

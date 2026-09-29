@@ -59,7 +59,7 @@ Successful mutations are silent and return 0. Invalid syntax returns 2; runtime 
 ## Layouts
 
 ```sh
-vscreen layout xreal-uw-dual          # Run ~/.vscreen/layout/xreal-uw-dual (or .sh)
+vscreen layout xreal-uw-dual-32       # Run ~/.vscreen/layout/xreal-uw-dual-32 (or .sh)
 vscreen layout NAME ARGS...           # Extra arguments go to the script
 vscreen layout                        # Available layout names (alias: layout --list)
 vscreen generate xreal-uw             # Write the XREAL preset's hook and layouts

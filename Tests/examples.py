@@ -117,6 +117,15 @@ else: sys.exit(9)
                     self.assertEqual([calls[i] for i in mains], [[primary, '--main']])
                     self.assertLess(max(news), mains[0])
                     self.assertLess(mains[0], min(shows))
+                    # After the switch, the rest of the row is put back beside the new main, left to right.
+                    sizes = LAYOUTS[layout](width, 1080)
+                    primary_x = sum(w for name, w in sizes.items() if name == LEFT and primary == CENTER)
+                    x, expected = -primary_x, []
+                    for name, w in sizes.items():
+                        if name != primary: expected.append([name, '--origin', f'{x}x0'])
+                        x += w
+                    between = calls[mains[0] + 1:min(shows)]
+                    self.assertEqual([c for c in between if c[0] != 'screens'], expected)
                     offset = 0
                     for name, w in LAYOUTS[layout](width, 1080).items():
                         create = next(c for c in calls if c[:2] == ['--new', name])

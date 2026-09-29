@@ -52,7 +52,11 @@ else
 fi
 vsrun --new "$left" --resolution "${left_width}x${height}" --size "${left_width}x${height}" --origin "${origin_x}x${origin_y}" --borderless --hide
 vsrun --new "$right" --resolution "${right_width}x${height}" --size "${right_width}x${height}" --origin "$((origin_x + left_width))x${origin_y}" --borderless --hide
-[ "$solo" -eq 0 ] || vsrun "$left" --main
+if [ "$solo" -eq 1 ]; then
+    vsrun "$left" --main
+    # macOS doesn't always keep the rest of the row beside a new main; put it back in the new coordinates.
+    vsrun "$right" --origin "${left_width}x0"
+fi
 
 # Connecting displays can move XREAL. Position previews using its new origin,
 # but never stretch the captured image if its logical size changed mid-setup.

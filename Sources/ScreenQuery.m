@@ -24,7 +24,7 @@ NSDictionary *VSScreenQuery(NSDictionary *command, NSArray<NSDictionary *> *disp
     for (NSDictionary *display in sorted) {
         if (![display[@"id"] isEqual:command[@"id"]]) continue;
         if ([query isEqual:@"detail"]) return VSReply(VSJSON(display));
-        if ([query isEqual:@"name"]) return VSReply(display[@"name"]);
+        if ([query isEqual:@"name"] || [query isEqual:@"aspect"]) return VSReply(display[query]);
         NSArray *pair = display[query];
         return VSReply([NSString stringWithFormat:@"%@x%@", pair[0], pair[1]]);
     }

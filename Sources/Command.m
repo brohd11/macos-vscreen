@@ -15,8 +15,12 @@ NSString *VSUsage(void) {
       "  vscreen screens ID --name        Display name\n"
       "  vscreen screens ID --origin      Display origin as XxY\n"
       "  vscreen screens ID --size        Logical display size as WxH\n"
+      "  vscreen screens ID --aspect      Logical aspect ratio as reduced W:H (e.g. 32:9)\n"
       "  vscreen layout NAME [ARGS...]    Run layout script NAME[.sh] from ~/.vscreen/layout (alias: --layout)\n"
       "  vscreen layout --list            Available layout names\n"
+      "  vscreen hooks                    Display-change hooks from ~/.vscreen/config.json\n"
+      "  vscreen hooks --run              Run the hooks now, in this terminal\n"
+      "  vscreen login [--enable|--disable]  Start VScreen at login and run hooks; bare shows status\n"
       "  vscreen --generate-example       Write the XREAL dual layout (xreal-uw-dual) to ~/.vscreen/layout\n"
       "  vscreen --check                  Report the app's Screen Recording permission\n"
       "  vscreen --request-permissions    Request Screen Recording for VScreen\n"
@@ -53,7 +57,7 @@ BOOL VSNumber(NSString *text, NSInteger low, NSInteger high, NSInteger *value) {
     *value = (NSInteger)n;
     return YES;
 }
-static BOOL validName(NSString *name) {
+BOOL VSValidName(NSString *name) {
     return [name rangeOfString:@"^[A-Za-z_][A-Za-z0-9_.-]{0,63}$" options:NSRegularExpressionSearch].location != NSNotFound;
 }
 NSDictionary *VSParseCommand(NSArray<NSString *> *args, NSString **error) {
@@ -74,7 +78,7 @@ NSDictionary *VSParseCommand(NSArray<NSString *> *args, NSString **error) {
         NSInteger display;
         if (VSNumber(option, 1, UINT32_MAX, &display)) {
             if (args.count == 2) return @{@"action": @"screens", @"query": @"detail", @"id": @(display)};
-            if (args.count == 3 && [@[@"--name", @"--origin", @"--size"] containsObject:args[2]])
+            if (args.count == 3 && [@[@"--name", @"--origin", @"--size", @"--aspect"] containsObject:args[2]])
                 return @{@"action": @"screens", @"query": [args[2] substringFromIndex:2], @"id": @(display)};
         }
         if (error) *error = @"Invalid screens query. Run vscreen --help.";
@@ -83,10 +87,23 @@ NSDictionary *VSParseCommand(NSArray<NSString *> *args, NSString **error) {
     if ([first isEqual:@"layout"] || [first isEqual:@"--layout"]) {
         if (args.count == 1 || (args.count == 2 && [args[1] isEqual:@"--list"]))
             return @{@"action": @"layout", @"query": @"list"};
-        if (validName(args[1]))
+        if (VSValidName(args[1]))
             return @{@"action": @"layout", @"name": args[1],
                      @"arguments": [args subarrayWithRange:NSMakeRange(2, args.count - 2)]};
         if (error) *error = @"Invalid layout name. Run vscreen --help.";
+        return nil;
+    }
+    if ([first isEqual:@"hooks"]) {
+        if (args.count == 1 || (args.count == 2 && [args[1] isEqual:@"--run"]))
+            return @{@"action": @"hooks", @"run": @(args.count == 2)};
+        if (error) *error = @"Invalid hooks command. Run vscreen --help.";
+        return nil;
+    }
+    if ([first isEqual:@"login"]) {
+        if (args.count == 1) return @{@"action": @"login"};
+        if (args.count == 2 && ([args[1] isEqual:@"--enable"] || [args[1] isEqual:@"--disable"]))
+            return @{@"action": @"login", @"enable": @([args[1] isEqual:@"--enable"])};
+        if (error) *error = @"Invalid login command. Run vscreen --help.";
         return nil;
     }
     if ([first isEqual:@"--list"] && (args.count == 1 || (args.count == 2 && [args[1] isEqual:@"--json"])))
@@ -101,10 +118,10 @@ NSDictionary *VSParseCommand(NSArray<NSString *> *args, NSString **error) {
         NSUInteger index = create ? 2 : 1;
         NSString *name = create ? (args.count > 1 ? args[1] : nil) : first;
         NSInteger displayID;
-        if (!name || (!validName(name) && (create || !VSNumber(name, 1, UINT32_MAX, &displayID))))
+        if (!name || (!VSValidName(name) && (create || !VSNumber(name, 1, UINT32_MAX, &displayID))))
             problem = @"Expected a display name or owned display ID. Run vscreen --help.";
-        else if ([@[@"screens", @"layout", @"close", @"quit"] containsObject:name])
-            problem = @"The names 'screens', 'layout', 'close', and 'quit' are reserved for subcommands.";
+        else if ([@[@"screens", @"layout", @"hooks", @"login", @"close", @"quit"] containsObject:name])
+            problem = @"The names 'screens', 'layout', 'hooks', 'login', 'close', and 'quit' are reserved for subcommands.";
         if (!problem && !create && args.count == 2 && [args[1] isEqual:@"--close"])
             return @{@"action": @"close", @"names": @[name]};
         NSMutableDictionary *changes = [NSMutableDictionary new];

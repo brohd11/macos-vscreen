@@ -4,9 +4,9 @@ Use `build/vscreen` before installing. It is the same executable inside the app 
 
 ## Architecture
 
-The bundled executable is the CLI client. It starts one resident app through LaunchServices on demand and talks to it over a private per-user Unix socket, with serialized requests and replies. A short-lived helper owns each virtual display so parent exit also disconnects it. No login service, third-party dependency, or saved display configuration is used.
+The bundled executable is the CLI client. It starts one resident app through LaunchServices on demand and talks to it over a private per-user Unix socket, with serialized requests and replies. A short-lived helper owns each virtual display so parent exit also disconnects it. There's no third-party dependency or saved display state. The optional Login Item is the same app, registered with `SMAppService.mainAppService`. When launched with no arguments by launchd (at login or from Finder), it serves the default runtime directory and runs the [hooks](auto-connect.md) once. Hooks run as child processes, never inside a socket request, because they call `vscreen` themselves.
 
-`VSCREEN_RUNTIME_DIR` selects a separate private runtime directory for tests.
+`VSCREEN_RUNTIME_DIR` selects a separate private runtime directory for tests. `VSCREEN_CONFIG` and `VSCREEN_LAYOUT_DIR` redirect hooks and layouts. In `--serve-test` mode, hooks run only when `VSCREEN_CONFIG` is set.
 
 ## Tests
 

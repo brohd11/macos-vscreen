@@ -34,6 +34,7 @@ vscreen Desktop1 --close                                       # Remove it
 - [Permissions](docs/permissions.md) — Screen Recording and rebuild recovery
 - [CLI reference](docs/cli.md) — all commands, settings, coordinates, exit codes
 - [Screen queries](docs/screen-queries.md) — read-only display lookups for scripts
+- [Auto-connect](docs/auto-connect.md) — start at login and run layouts on display changes
 - [XREAL layouts](docs/xreal-layouts.md) — dual/triple example layouts
 - [Window controls](docs/window-controls.md) — shortcuts and app lifecycle
 - [Development](docs/development.md) — architecture and tests

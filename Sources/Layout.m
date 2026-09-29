@@ -2,7 +2,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-static NSString *layoutDirectory(void) {
+NSString *VSLayoutDirectory(void) {
     NSString *custom = NSProcessInfo.processInfo.environment[@"VSCREEN_LAYOUT_DIR"];
     return custom.length ? custom : [NSHomeDirectory() stringByAppendingPathComponent:@".vscreen/layout"];
 }
@@ -68,8 +68,23 @@ static BOOL isExecutable(NSString *path) {
     return isRegularFile(path) && access(path.fileSystemRepresentation, X_OK) == 0;
 }
 
+NSString *VSLayoutPath(NSString *name, NSString **error) {
+    NSString *directory = VSLayoutDirectory();
+    NSString *path = [directory stringByAppendingPathComponent:name];
+    if (!isRegularFile(path)) path = [path stringByAppendingPathExtension:@"sh"];
+    if (!isRegularFile(path)) {
+        if (error) *error = [NSString stringWithFormat:@"No layout %@ in %@.", name, directory];
+        return nil;
+    }
+    if (!isExecutable(path)) {
+        if (error) *error = [NSString stringWithFormat:@"Layout %@ is not executable; run: chmod +x '%@'", name, path];
+        return nil;
+    }
+    return path;
+}
+
 int VSRunLayout(NSDictionary *command) {
-    NSString *directory = layoutDirectory();
+    NSString *directory = VSLayoutDirectory();
     if ([command[@"query"] isEqual:@"list"]) {
         NSMutableOrderedSet *names = [NSMutableOrderedSet new];
         NSArray *files = [[NSFileManager.defaultManager contentsOfDirectoryAtPath:directory error:nil]
@@ -82,15 +97,9 @@ int VSRunLayout(NSDictionary *command) {
         return 0;
     }
 
-    NSString *name = command[@"name"];
-    NSString *path = [directory stringByAppendingPathComponent:name];
-    if (!isRegularFile(path)) path = [path stringByAppendingPathExtension:@"sh"];
-    if (!isRegularFile(path)) {
-        fprintf(stderr, "No layout %s in %s.\n", name.UTF8String, directory.UTF8String); return 1;
-    }
-    if (!isExecutable(path)) {
-        fprintf(stderr, "Layout %s is not executable; run: chmod +x '%s'\n", name.UTF8String, path.UTF8String); return 1;
-    }
+    NSString *error = nil;
+    NSString *path = VSLayoutPath(command[@"name"], &error);
+    if (!path) { fprintf(stderr, "%s\n", error.UTF8String); return 1; }
 
     // Layout scripts call vscreen; point them at this binary when PATH lacks the launcher.
     setenv("VSCREEN_BIN", NSBundle.mainBundle.executablePath.fileSystemRepresentation, 0);
@@ -105,7 +114,7 @@ int VSRunLayout(NSDictionary *command) {
 }
 
 int VSGenerateExample(void) {
-    NSString *directory = layoutDirectory();
+    NSString *directory = VSLayoutDirectory();
     NSString *path = [directory stringByAppendingPathComponent:@"xreal-uw-dual.sh"];
     NSData *contents = [exampleLayout dataUsingEncoding:NSUTF8StringEncoding];
     NSData *existing = [NSData dataWithContentsOfFile:path];

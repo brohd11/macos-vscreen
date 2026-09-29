@@ -2,7 +2,9 @@
 #import "Command.h"
 #import "Desktop.h"
 #import "ScreenQuery.h"
+#import "Hooks.h"
 #import <Carbon/Carbon.h>
+#import <ServiceManagement/ServiceManagement.h>
 #include <signal.h>
 
 NSArray<NSNumber *> *VSOnlineDisplays(void) {
@@ -28,6 +30,11 @@ static CGPoint previewPosition(NSWindow *window) {
 static NSRect previewRect(CGPoint position, CGSize size) {
     return NSMakeRect(position.x, primaryHeight() - position.y - size.height, size.width, size.height);
 }
+static NSString *aspectString(CGSize size) {
+    long width = lround(size.width), height = lround(size.height), a = width, b = height;
+    while (b) { long t = a % b; a = b; b = t; }
+    return a ? [NSString stringWithFormat:@"%ld:%ld", width / a, height / a] : @"0:0";
+}
 NSArray<NSDictionary *> *VSSystemDisplays(void) {
     NSMutableArray *result = [NSMutableArray new];
     for (NSNumber *number in VSOnlineDisplays()) {
@@ -37,7 +44,7 @@ NSArray<NSDictionary *> *VSSystemDisplays(void) {
             if ([screen.deviceDescription[@"NSScreenNumber"] isEqual:number]) name = screen.localizedName;
         CGRect bounds = CGDisplayBounds(display);
         [result addObject:@{@"id": number, @"name": name, @"origin": pointArray(bounds.origin),
-            @"size": sizeArray(bounds.size), @"resolution": @[@(CGDisplayPixelsWide(display)), @(CGDisplayPixelsHigh(display))],
+            @"size": sizeArray(bounds.size), @"aspect": aspectString(bounds.size), @"resolution": @[@(CGDisplayPixelsWide(display)), @(CGDisplayPixelsHigh(display))],
             @"main": @((BOOL)CGDisplayIsMain(display)), @"mirror": @(CGDisplayMirrorsDisplay(display))}];
     }
     return result;
@@ -47,6 +54,7 @@ NSArray<NSDictionary *> *VSSystemDisplays(void) {
 - (void)finish;
 - (void)handleHotKey:(UInt32)key;
 - (void)displaysWillChange;
+- (void)display:(CGDirectDisplayID)display changed:(CGDisplayChangeSummaryFlags)flags;
 @end
 @implementation VSController {
     NSMutableDictionary<NSString *, VSDesktop *> *_desktops;
@@ -56,10 +64,13 @@ NSArray<NSDictionary *> *VSSystemDisplays(void) {
     dispatch_source_t _interrupt, _terminate;
     BOOL _stopping, _quitting;
     NSMutableDictionary<NSString *, NSArray *> *_homes;  // name -> @[screen display ID, content rect]
+    NSMutableSet<NSNumber *> *_ownedIDs;  // Every display this process created, kept after close.
+    NSTimer *_hookTimer;
+    BOOL _hooksRunning, _hooksPending;
 }
 static void displaysReconfigured(CGDirectDisplayID display, CGDisplayChangeSummaryFlags flags, void *context) {
-    (void)display;
     if (flags & kCGDisplayBeginConfigurationFlag) [(__bridge VSController *)context displaysWillChange];
+    else [(__bridge VSController *)context display:display changed:flags];
 }
 // Runs before AppKit relocates windows off a disconnected screen, so record which screen each
 // visible preview is on and where.
@@ -91,6 +102,34 @@ static void displaysReconfigured(CGDirectDisplayID display, CGDisplayChangeSumma
         }
     });
 }
+- (BOOL)hooksEnabled {
+    return !self.testMode || NSProcessInfo.processInfo.environment[@"VSCREEN_CONFIG"].length;
+}
+// Hooks react to other displays appearing, disappearing, or changing mode. Moves are ignored because
+// layout scripts rearrange displays themselves, and VScreen's own displays are ignored for the same reason.
+- (void)display:(CGDirectDisplayID)display changed:(CGDisplayChangeSummaryFlags)flags {
+    CGDisplayChangeSummaryFlags relevant = kCGDisplayAddFlag | kCGDisplayRemoveFlag | kCGDisplaySetModeFlag
+        | kCGDisplayEnabledFlag | kCGDisplayDisabledFlag;
+    if (_stopping || !(flags & relevant) || ![self hooksEnabled] || [_ownedIDs containsObject:@(display)]
+        || CGDisplayVendorNumber(display) == 0x5653) return;
+    // A connection arrives as a burst of callbacks; run once it settles.
+    [_hookTimer invalidate];
+    __weak VSController *weakSelf = self;
+    _hookTimer = [NSTimer scheduledTimerWithTimeInterval:1.5 repeats:NO block:^(NSTimer *timer) {
+        (void)timer; [weakSelf runHooks:@"display-change"];
+    }];
+}
+- (void)runHooks:(NSString *)event {
+    if (_stopping) return;
+    if (_hooksRunning) { _hooksPending = YES; return; }
+    _hooksRunning = YES;
+    VSRunHooksAsync(event, ^{
+        self->_hooksRunning = NO;
+        if (!self->_hooksPending) return;
+        self->_hooksPending = NO;
+        [self runHooks:@"display-change"];
+    });
+}
 static OSStatus hotKey(EventHandlerCallRef handler, EventRef event, void *context) {
     (void)handler;
     EventHotKeyID key;
@@ -111,6 +150,7 @@ static OSStatus hotKey(EventHandlerCallRef handler, EventRef event, void *contex
 - (void)applicationDidFinishLaunching:(NSNotification *)notification {
     (void)notification;
     _desktops = [NSMutableDictionary new];
+    _ownedIDs = [NSMutableSet new];
     _control = [VSControl new];
     NSString *error = nil;
     __weak VSController *weakSelf = self;
@@ -124,6 +164,8 @@ static OSStatus hotKey(EventHandlerCallRef handler, EventRef event, void *contex
             reply(response);
         }];
     } error:&error]) {
+        int running = self.launchHooks ? VSConnect(self.runtimeDirectory) : -1;
+        if (running >= 0) { close(running); [self finish]; return; }  // Already resident; nothing to do.
         fprintf(stderr, "%s\n", error.UTF8String); self.exitCode = 1; [self finish]; return;
     }
     if (!self.testMode) {
@@ -139,6 +181,7 @@ static OSStatus hotKey(EventHandlerCallRef handler, EventRef event, void *contex
     CGDisplayRegisterReconfigurationCallback(displaysReconfigured, (__bridge void *)self);
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(screensChanged:)
         name:NSApplicationDidChangeScreenParametersNotification object:nil];
+    if (self.launchHooks && [self hooksEnabled]) [self runHooks:@"launch"];
     signal(SIGINT, SIG_IGN); signal(SIGTERM, SIG_IGN);
     _interrupt = dispatch_source_create(DISPATCH_SOURCE_TYPE_SIGNAL, SIGINT, 0, dispatch_get_main_queue());
     _terminate = dispatch_source_create(DISPATCH_SOURCE_TYPE_SIGNAL, SIGTERM, 0, dispatch_get_main_queue());
@@ -214,6 +257,7 @@ static OSStatus hotKey(EventHandlerCallRef handler, EventRef event, void *contex
         [NSWorkspace.sharedWorkspace openURL:[NSURL URLWithString:@"x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"]];
         reply(VSReply(@"Enable VScreen in Screen & System Audio Recording, then run vscreen quit before creating a desktop.")); return;
     }
+    if ([action isEqual:@"login"]) { reply([self loginItem:command[@"enable"]]); return; }
     if ([action isEqual:@"quit"]) {
         _quitting = YES;
         reply(VSReply(@""));
@@ -233,6 +277,9 @@ static OSStatus hotKey(EventHandlerCallRef handler, EventRef event, void *contex
         [self awaitRemoval:ids attempts:50 completion:reply]; return;
     }
     if ([action isEqual:@"help"]) { reply(VSReply(VSUsage())); return; }
+    if ([@[@"hooks", @"layout", @"generate-example"] containsObject:action]) {
+        reply(VSFailure(@"This command runs in the vscreen client, not the app.")); return;
+    }
     NSString *selector = command[@"name"];
     NSString *name = [action isEqual:@"new"] ? selector : [self nameForSelector:selector];
     VSDesktop *desktop = name ? _desktops[name] : nil;
@@ -251,6 +298,19 @@ static OSStatus hotKey(EventHandlerCallRef handler, EventRef event, void *contex
     if (!desktop) { reply(VSFailure([NSString stringWithFormat:@"No owned VScreen display matches %@. Create one with --new NAME first.", selector])); return; }
     if ([action isEqual:@"info"]) { reply(VSReply(VSJSON([self details:desktop name:name]))); return; }
     [self update:desktop name:name changes:command[@"changes"] completion:reply];
+}
+- (NSDictionary *)loginItem:(NSNumber *)enable {
+    SMAppService *service = SMAppService.mainAppService;
+    NSError *failure = nil;
+    BOOL registered = service.status == SMAppServiceStatusEnabled || service.status == SMAppServiceStatusRequiresApproval;
+    if (enable && enable.boolValue != registered
+        && !(enable.boolValue ? [service registerAndReturnError:&failure] : [service unregisterAndReturnError:&failure]))
+        return VSFailure([NSString stringWithFormat:@"Cannot %@ login item: %@", enable.boolValue ? @"register" : @"remove",
+                          failure.localizedDescription]);
+    if (service.status == SMAppServiceStatusEnabled) return VSReply(@"enabled");
+    if (service.status != SMAppServiceStatusRequiresApproval) return VSReply(@"disabled");
+    [SMAppService openSystemSettingsLoginItems];
+    return VSReply(@"requires-approval: allow VScreen in System Settings > General > Login Items");
 }
 - (void)awaitRemoval:(NSArray *)ids attempts:(NSUInteger)attempts completion:(VSCompletion)reply {
     NSArray *online = VSOnlineDisplays();
@@ -272,6 +332,7 @@ static OSStatus hotKey(EventHandlerCallRef handler, EventRef event, void *contex
     NSError *error = nil;
     VSDisplay *display = [[VSDisplay alloc] initWithName:name width:(NSUInteger)resolution.width height:(NSUInteger)resolution.height fps:60 error:&error];
     if (!display) { reply(VSFailure(error.localizedDescription)); return; }
+    [_ownedIDs addObject:@(display.displayID)];
     VSDesktop *desktop = [[VSDesktop alloc] initWithDisplay:display name:name frame:previewRect(position, size)
         borderless:changes[@"borderless"] ? [changes[@"borderless"] boolValue] : YES level:CGWindowLevelForKey(kCGMaximumWindowLevelKey)];
     if (changes[@"borderColor"]) desktop.borderColor = changes[@"borderColor"];
@@ -341,6 +402,7 @@ static OSStatus hotKey(EventHandlerCallRef handler, EventRef event, void *contex
 - (void)finish {
     if (_stopping) return;
     _stopping = YES;
+    [_hookTimer invalidate];
     CGDisplayRemoveReconfigurationCallback(displaysReconfigured, (__bridge void *)self);
     for (VSDesktop *desktop in _desktops.allValues) [desktop stop];
     [_desktops removeAllObjects];

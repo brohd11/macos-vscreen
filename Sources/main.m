@@ -4,6 +4,7 @@
 #import "Layout.h"
 #import "VirtualDisplay.h"
 #import "ScreenQuery.h"
+#import "Hooks.h"
 #include <signal.h>
 
 static int client(NSArray<NSString *> *arguments) {
@@ -14,6 +15,8 @@ static int client(NSArray<NSString *> *arguments) {
     if ([action isEqual:@"help"]) { fputs(VSUsage().UTF8String, stdout); return 0; }
     if ([action isEqual:@"layout"]) return VSRunLayout(command);
     if ([action isEqual:@"generate-example"]) return VSGenerateExample();
+    // Hooks call vscreen, so they must not run inside a request the app is still serving.
+    if ([action isEqual:@"hooks"]) return VSRunHooksCommand(command);
     if ([action isEqual:@"screens"]) {
         NSDictionary *reply = VSScreenQuery(command, VSSystemDisplays());
         if (![reply[@"ok"] boolValue]) { fprintf(stderr, "%s\n", [reply[@"error"] UTF8String]); return 1; }
@@ -31,7 +34,7 @@ static int client(NSArray<NSString *> *arguments) {
             if ([command[@"json"] boolValue]) puts("[]");
             return 0;
         }
-        if (![@[@"new", @"check", @"permissions"] containsObject:action]) {
+        if (![@[@"new", @"check", @"permissions", @"login"] containsObject:action]) {
             fprintf(stderr, "VScreen is not running. Create a display with --new NAME first.\n"); return 1;
         }
         NSWorkspaceOpenConfiguration *configuration = [NSWorkspaceOpenConfiguration configuration];
@@ -81,12 +84,16 @@ int main(int argc, const char **argv) {
                 || !VSNumber(@(argv[4]), 1, 120, &fps)) return 2;
             return VSRunDisplayHost(@(argv[5]), (NSUInteger)width, (NSUInteger)height, (NSUInteger)fps);
         }
-        if (argc == 3 && (!strcmp(argv[1], "--serve") || !strcmp(argv[1], "--serve-test"))) {
+        // LaunchServices starts login items (and Finder opens) with no arguments and launchd as parent;
+        // a terminal `vscreen` has a shell parent and still prints help.
+        BOOL loginLaunch = argc == 1 && getppid() == 1;
+        if (loginLaunch || (argc == 3 && (!strcmp(argv[1], "--serve") || !strcmp(argv[1], "--serve-test")))) {
             [NSApplication sharedApplication];
             [NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
             VSController *controller = [VSController new];
-            controller.runtimeDirectory = @(argv[2]);
-            controller.testMode = !strcmp(argv[1], "--serve-test");
+            controller.runtimeDirectory = loginLaunch ? VSRuntimeDirectory() : @(argv[2]);
+            controller.testMode = !loginLaunch && !strcmp(argv[1], "--serve-test");
+            controller.launchHooks = loginLaunch;
             NSApp.delegate = controller;
             [NSApp run];
             return controller.exitCode;

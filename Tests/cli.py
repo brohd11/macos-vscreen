@@ -1,4 +1,5 @@
 import json
+import math
 import os
 import pathlib
 import socket
@@ -50,7 +51,9 @@ class CLITests(unittest.TestCase):
                  ("UWLeft", "--border-color", "none", "--border-color", "#123456"),
                  ("UWLeft", "--shadow", "--no-shadow"), ("UWLeft", "--hi-perf", "--no-hi-perf"),
                  ("layout", "../escape"), ("layout", ""), ("--layout", "a/b"),
-                 ("layout", "--list", "extra"), ("--new", "layout")]
+                 ("layout", "--list", "extra"), ("--new", "layout"),
+                 ("screens", "1", "--aspect", "extra"), ("login", "--bogus"), ("login", "--enable", "extra"),
+                 ("hooks", "--bogus"), ("hooks", "--run", "extra"), ("--new", "login"), ("--new", "hooks")]
         for args in cases:
             with self.subTest(args=args):
                 result = self.run_cli(*args)
@@ -127,9 +130,12 @@ class CLITests(unittest.TestCase):
         for display in displays:
             display_id = str(display["id"])
             self.assertEqual(json.loads(self.run_cli("screens", display_id).stdout), display)
-            for key in ("name", "origin", "size"):
+            width, height = map(round, display["size"])
+            divisor = math.gcd(width, height)
+            self.assertEqual(display["aspect"], f"{width // divisor}:{height // divisor}")
+            for key in ("name", "origin", "size", "aspect"):
                 query = self.run_cli("screens", display_id, "--" + key)
-                expected = display[key] if key == "name" else "x".join(map(str, display[key]))
+                expected = display[key] if key in ("name", "aspect") else "x".join(map(str, display[key]))
                 self.assertEqual((query.returncode, query.stdout), (0, expected + "\n"), query.stderr)
         if displays:
             self.assertEqual(self.run_cli("screens", "--find", "*").stdout, f"{ordered[0]['id']}\n")
@@ -180,6 +186,47 @@ class CLITests(unittest.TestCase):
                 self.assertEqual((failed.returncode, failed.stdout), (1, ""))
                 self.assertIn(message, failed.stderr)
         self.assertFalse((pathlib.Path(self.directory.name) / "control.sock").exists())
+
+    def test_login_reaches_running_app(self):
+        for args in [("login",), ("login", "--enable"), ("login", "--disable")]:
+            with self.subTest(args=args):
+                result = self.exchange(args, {"ok": True, "output": "disabled"})
+                self.assertEqual((result.returncode, result.stdout), (0, "disabled\n"), result.stderr)
+
+    def test_hooks_run_in_client_without_resident_app(self):
+        root = pathlib.Path(self.directory.name)
+        layouts, config, log = root / "layouts", root / "config.json", root / "hook-log"
+        self.env.update(VSCREEN_LAYOUT_DIR=str(layouts), VSCREEN_CONFIG=str(config))
+        self.env.pop("VSCREEN_BIN", None)
+        self.assertEqual(self.run_cli("hooks").returncode, 0)  # A missing config means no hooks.
+        self.assertEqual((self.run_cli("hooks", "--run").returncode, self.run_cli("hooks", "--run").stdout), (0, ""))
+
+        layouts.mkdir()
+        (layouts / "record.sh").write_text(
+            f'#!/bin/sh\nprintf "%s|%s|%s\\n" "$VSCREEN_EVENT" "$VSCREEN_BIN" "$*" >> "{log}"\n')
+        (layouts / "broken").write_text("#!/bin/sh\nexit 4\n")
+        for name in ("record.sh", "broken"):
+            (layouts / name).chmod(0o755)
+        config.write_text(json.dumps({"onDisplayChange": [["record", "two words"], "broken", "missing", "record"]}))
+        self.assertEqual(self.run_cli("hooks").stdout, "record two words\nbroken\nmissing\nrecord\n")
+
+        result = self.run_cli("hooks", "--run")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("broken exited with status 4", result.stderr)
+        self.assertIn("No layout missing", result.stderr)
+        lines = [line.split("|") for line in log.read_text().splitlines()]
+        self.assertEqual([(event, args) for event, _, args in lines], [("manual", "two words"), ("manual", "")])
+        self.assertEqual(os.path.realpath(lines[0][1]), os.path.realpath(BIN))
+
+        for text in ("not json", "[]", '{"onDisplayChange": "record"}', '{"onDisplayChange": [1]}',
+                     '{"onDisplayChange": [[]]}', '{"onDisplayChange": ["../escape"]}'):
+            with self.subTest(config=text):
+                config.write_text(text)
+                for args in (("hooks",), ("hooks", "--run")):
+                    failed = self.run_cli(*args)
+                    self.assertEqual((failed.returncode, failed.stdout), (1, ""))
+                    self.assertIn("Invalid", failed.stderr)
+        self.assertFalse((root / "control.sock").exists())
 
 
 if __name__ == "__main__":

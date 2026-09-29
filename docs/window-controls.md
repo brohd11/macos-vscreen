@@ -12,6 +12,6 @@ Previews do not capture, confine, warp, or forward mouse/keyboard input. Move th
 
 ## App lifecycle
 
-The app stays available for CLI commands after the last desktop closes; use `vscreen quit` to exit. Nothing is installed as a login item or background service. Desktop names/settings live only for that app session; save a shell script to recreate a layout.
+The app stays available for CLI commands after the last desktop closes; use `vscreen quit` to exit. It starts at login only if you run `vscreen login --enable`; see [Auto-connect](auto-connect.md). Desktop names/settings live only for that app session; save a layout script to recreate them, and list it in `~/.vscreen/config.json` to rerun it on display changes.
 
 System Settings can show a stale arrangement after removal; quit and reopen Settings if `vscreen --screens` confirms the display is gone.

@@ -48,8 +48,15 @@ assert before, "Requires a logged-in GUI session outside the sandbox"
 with tempfile.TemporaryDirectory(prefix="vs-integration-", dir="/tmp") as directory:
     env = dict(os.environ, VSCREEN_RUNTIME_DIR=directory)
     log_path = pathlib.Path(directory) / "host.log"
+    # Display-change hooks must ignore VScreen's own displays, or layout scripts would retrigger themselves.
+    hook_dir, hook_marker = pathlib.Path(directory) / "layout", pathlib.Path(directory) / "hook-fired"
+    hook_dir.mkdir()
+    (hook_dir / "record.sh").write_text(f'#!/bin/sh\necho "$VSCREEN_EVENT" >> "{hook_marker}"\n')
+    (hook_dir / "record.sh").chmod(0o755)
+    (pathlib.Path(directory) / "config.json").write_text('{"onDisplayChange": ["record"]}')
+    hook_env = dict(os.environ, VSCREEN_CONFIG=directory + "/config.json", VSCREEN_LAYOUT_DIR=str(hook_dir))
     with log_path.open("w+") as log:
-        host = subprocess.Popen([str(BIN), "--serve-test", directory], stdout=log, stderr=log)
+        host = subprocess.Popen([str(BIN), "--serve-test", directory], stdout=log, stderr=log, env=hook_env)
         try:
             wait_for(lambda: (pathlib.Path(directory) / "control.sock").exists())
             assert run("--list", env=env).stdout == ""
@@ -147,6 +154,8 @@ with tempfile.TemporaryDirectory(prefix="vs-integration-", dir="/tmp") as direct
             run("--new", "AfterClose", "--resolution", "800x600", "--hide", env=env)
             run("--close", env=env)
             assert run("--list", env=env).stdout == "" and host.poll() is None
+            time.sleep(2)  # Longer than the hook debounce.
+            assert not hook_marker.exists(), "Owned display changes fired hooks: " + hook_marker.read_text()
             run("--new", "QuitTest", "--resolution", "800x600", "--hide", env=env)
             run("quit", env=env)
             assert host.wait(timeout=10) == 0
@@ -163,7 +172,7 @@ with tempfile.TemporaryDirectory(prefix="vs-integration-", dir="/tmp") as direct
             wait_for(lambda: host_ready(directory, host.pid))
             run("--quit", env=env)
             assert host.wait(timeout=10) == 0
-            print("Integration passed: named/ID targeting, border/shadow settings, lifecycle, displaced-preview hiding, resolution, geometry, concurrency, close-all/quit aliases, existing display preservation.")
+            print("Integration passed: named/ID targeting, border/shadow settings, lifecycle, displaced-preview hiding, resolution, geometry, concurrency, close-all/quit aliases, hooks ignore owned displays, existing display preservation.")
         finally:
             if host.poll() is None:
                 host.terminate()

@@ -2,3 +2,4 @@
 NSDictionary *VSParseCommand(NSArray<NSString *> *arguments, NSString **error);
 NSString *VSUsage(void);
 BOOL VSNumber(NSString *text, NSInteger low, NSInteger high, NSInteger *value);
+BOOL VSValidName(NSString *name);

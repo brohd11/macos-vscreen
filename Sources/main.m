@@ -13,6 +13,7 @@ static int client(NSArray<NSString *> *arguments) {
     NSString *action = command[@"action"];
     if ([action isEqual:@"help"]) { fputs(VSUsage().UTF8String, stdout); return 0; }
     if ([action isEqual:@"layout"]) return VSRunLayout(command);
+    if ([action isEqual:@"generate-example"]) return VSGenerateExample();
     if ([action isEqual:@"screens"]) {
         NSDictionary *reply = VSScreenQuery(command, VSSystemDisplays());
         if (![reply[@"ok"] boolValue]) { fprintf(stderr, "%s\n", [reply[@"error"] UTF8String]); return 1; }

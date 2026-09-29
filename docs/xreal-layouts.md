@@ -12,13 +12,14 @@ Uses only shell built-ins and `vscreen` on PATH (`VSCREEN_BIN=/path/to/vscreen` 
 
 For three displays, run `./examples/xreal-uw-triple.sh`. It reuses UWLeft/UWRight and adds UWCenter: each side gets one quarter of XREAL's logical width and the center gets the remainder, all at its full height. Both examples fill XREAL edge to edge without stretching fixed-resolution desktops or adding margins.
 
-To run them from anywhere, install them as [layouts](cli.md#layouts):
+To run the dual layout from anywhere without a source checkout, install it as a [layout](cli.md#layouts):
 
 ```sh
-mkdir -p ~/.vscreen/layout
-cp examples/xreal-uw-*.sh ~/.vscreen/layout/
+vscreen --generate-example
 vscreen layout xreal-uw-dual
 ```
+
+For the triple layout, copy it from a checkout: `cp examples/xreal-uw-triple.sh ~/.vscreen/layout/`.
 
 Sources: [xreal-uw-dual.sh](../examples/xreal-uw-dual.sh), [xreal-uw-triple.sh](../examples/xreal-uw-triple.sh).
 

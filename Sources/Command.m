@@ -17,6 +17,7 @@ NSString *VSUsage(void) {
       "  vscreen screens ID --size        Logical display size as WxH\n"
       "  vscreen layout NAME [ARGS...]    Run layout script NAME[.sh] from ~/.vscreen/layout (alias: --layout)\n"
       "  vscreen layout --list            Available layout names\n"
+      "  vscreen --generate-example       Write the XREAL dual layout (xreal-uw-dual) to ~/.vscreen/layout\n"
       "  vscreen --check                  Report the app's Screen Recording permission\n"
       "  vscreen --request-permissions    Request Screen Recording for VScreen\n"
       "  vscreen quit                     Close all owned desktops and stop app (alias: --quit)\n"
@@ -90,7 +91,7 @@ NSDictionary *VSParseCommand(NSArray<NSString *> *args, NSString **error) {
     }
     if ([first isEqual:@"--list"] && (args.count == 1 || (args.count == 2 && [args[1] isEqual:@"--json"])))
         return @{@"action": @"list", @"json": @(args.count == 2)};
-    NSDictionary *simple = @{@"--screens": @"screens", @"--check": @"check", @"quit": @"quit", @"--quit": @"quit", @"--request-permissions": @"permissions"};
+    NSDictionary *simple = @{@"--screens": @"screens", @"--check": @"check", @"quit": @"quit", @"--quit": @"quit", @"--request-permissions": @"permissions", @"--generate-example": @"generate-example"};
     if (simple[first] && args.count == 1) return @{@"action": simple[first]};
     if ([first isEqual:@"close"] || [first isEqual:@"--close"]) {
         if (args.count == 1) return @{@"action": @"close", @"all": @YES};

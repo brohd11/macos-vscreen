@@ -62,9 +62,12 @@ Successful mutations are silent and return 0. Invalid syntax returns 2; runtime 
 vscreen layout xreal-uw-dual          # Run ~/.vscreen/layout/xreal-uw-dual (or .sh)
 vscreen layout NAME ARGS...           # Extra arguments go to the script
 vscreen layout                        # Available layout names (alias: layout --list)
+vscreen --generate-example            # Write the XREAL dual example as xreal-uw-dual.sh
 ```
 
 A layout is any executable script in `~/.vscreen/layout` (override with `VSCREEN_LAYOUT_DIR`). `layout` and `--layout` are equivalent. The client runs the script in place of itself without starting the app, so its output and exit code are the command's own. `VSCREEN_BIN` is set to the running `vscreen` binary unless it is already set, so scripts that use it work from launchers without `~/.local/bin` on PATH. A missing or non-executable layout returns 1.
+
+`--generate-example` writes the [XREAL dual layout](xreal-layouts.md) into the layout directory and makes it executable. The script is built into the binary, so no source checkout is needed. Rerunning it is a no-op; if the file was edited, the command returns 1 and leaves it unchanged.
 
 ## Appearance
 

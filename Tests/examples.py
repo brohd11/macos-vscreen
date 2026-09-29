@@ -105,5 +105,25 @@ else: sys.exit(9)
                         self.assertIn('rerun', result.stderr.lower())
 
 
+class GenerateExampleTests(unittest.TestCase):
+    def test_writes_embedded_copy_without_overwriting_edits(self):
+        with tempfile.TemporaryDirectory(prefix='vs-gen-', dir='/tmp') as directory:
+            layouts = pathlib.Path(directory) / 'layout'
+            env = dict(os.environ, VSCREEN_LAYOUT_DIR=str(layouts))
+            run = lambda: subprocess.run([str(ROOT / 'build' / 'vscreen'), '--generate-example'],
+                                         env=env, capture_output=True, text=True, timeout=10)
+            target = layouts / 'xreal-uw-dual.sh'
+            result = run()
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(target.read_bytes(), (ROOT / 'examples' / 'xreal-uw-dual.sh').read_bytes())
+            self.assertTrue(os.access(target, os.X_OK))
+            self.assertEqual(run().returncode, 0)
+            target.write_text('#!/bin/sh\n# edited\n')
+            result = run()
+            self.assertEqual(result.returncode, 1)
+            self.assertIn('differs', result.stderr)
+            self.assertEqual(target.read_text(), '#!/bin/sh\n# edited\n')
+
+
 if __name__ == '__main__':
     unittest.main()

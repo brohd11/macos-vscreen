@@ -34,18 +34,25 @@ args = sys.argv[1:]
 with (root / 'calls').open('a') as log:
     log.write(json.dumps(args) + '\\n')
 scenario = os.environ['LAYOUT_SCENARIO']
+MAIN = {{'solo': '2', 'solo-rerun': '5'}}  # XREAL alone: it is main, or a virtual already is.
 ready = (root / 'ready').exists()
 if args == ['screens', '--find', 'XREAL*']:
     if scenario == 'missing': sys.exit(1)
     print('2')
-elif args == ['screens', '--main']: print('1')
+elif args == ['screens', '--main']: print(MAIN.get(scenario, '1'))
 elif args == ['screens', '1', '--origin']: print('0x0')
 elif args == ['screens', '1', '--size']: print('1408x881')
+elif args[0] == 'screens' and args[2:] == ['--name']:
+    print({{'1': 'Built-in Retina Display', '2': 'XREAL One', '5': '{LEFT}'}}[args[1]])
 elif args == ['screens', '2', '--size']:
     if ready and scenario == 'disconnect': sys.exit(1)
     print('1920x1080' if ready and scenario == 'resize' else os.environ['LAYOUT_SIZE'])
 elif args == ['screens', '2', '--origin']:
-    print('-1216x-2160' if ready else '1408x-540')
+    # Alone, XREAL starts as main at 0x0 (or already below a main virtual on rerun) and ends below the row.
+    if scenario in MAIN: print('0x1080' if scenario == 'solo-rerun' or (root / 'main').exists() else '0x0')
+    else: print('-1216x-2160' if ready else '1408x-540')
+elif len(args) == 2 and args[1] == '--main' and args[0] in ('{LEFT}', '{CENTER}', '{RIGHT}'):
+    (root / 'main').touch()
 elif args[:2] == ['--new', '{RIGHT}']:
     if scenario == 'failure': sys.exit(7)
     (root / 'ready').touch()
@@ -86,6 +93,7 @@ else: sys.exit(9)
                         self.assertEqual(show[show.index('--position') + 1], f'{-1216 + offset}x-2160')
                         offset += w
                     self.assertEqual(offset, width)
+                    self.assertFalse([c for c in calls if '--main' in c and c[0] != 'screens'])
                     # Dual layouts close the triple layout's center before creating anything.
                     closes = [i for i, c in enumerate(calls) if '--close' in c]
                     if layout in DUALS:
@@ -93,6 +101,33 @@ else: sys.exit(9)
                         self.assertLess(closes[0], min(i for i, c in enumerate(calls) if c[0] == '--new'))
                     else:
                         self.assertEqual(closes, [])
+
+    def test_xreal_alone_promotes_a_virtual_to_main(self):
+        primaries = {'xreal-uw-dual-32': LEFT, 'xreal-uw-dual-21': LEFT, 'xreal-uw-triple-32': CENTER}
+        for layout, primary in primaries.items():
+            # solo: XREAL is main at 0x0. solo-rerun: Left is already main and XREAL sits below it.
+            for scenario, xreal_y in (('solo', 0), ('solo-rerun', 1080)):
+                with self.subTest(layout=layout, scenario=scenario):
+                    result, calls = self.invoke(layout, scenario=scenario)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    width = 2560 if layout == 'xreal-uw-dual-21' else 3840
+                    news = [i for i, c in enumerate(calls) if c[0] == '--new']
+                    shows = [i for i, c in enumerate(calls) if '--show' in c]
+                    mains = [i for i, c in enumerate(calls) if '--main' in c and c[0] != 'screens']
+                    self.assertEqual([calls[i] for i in mains], [[primary, '--main']])
+                    self.assertLess(max(news), mains[0])
+                    self.assertLess(mains[0], min(shows))
+                    offset = 0
+                    for name, w in LAYOUTS[layout](width, 1080).items():
+                        create = next(c for c in calls if c[:2] == ['--new', name])
+                        show = next(c for c in calls if c[0] == name and '--show' in c)
+                        # The row sits directly above XREAL, not centered on some other main display.
+                        self.assertEqual(create[create.index('--origin') + 1], f'{offset}x{xreal_y - 1080}')
+                        self.assertEqual(show[show.index('--position') + 1], f'{offset}x1080')
+                        offset += w
+                    if layout in DUALS:  # Center closes before XREAL's origin is read, as closing it can move XREAL.
+                        close = calls.index([CENTER, '--close'])
+                        self.assertLess(close, calls.index(['screens', '2', '--origin']))
 
     def test_invalid_geometry_does_not_mutate(self):
         for layout, width, height in (('xreal-uw-dual-32', 959, 1080), ('xreal-uw-triple-32', 1919, 1080),

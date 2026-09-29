@@ -33,6 +33,7 @@ NSString *VSUsage(void) {
       "  --size WxH        Preview content size in points (240–7680 x 135–4320)\n"
       "  --position XxY    Preview content top-left in global desktop coordinates\n"
       "  --origin XxY      Virtual display top-left in macOS Arrange coordinates\n"
+      "  --main            Make this the main display; shifts every display equally, so the arrangement keeps its shape\n"
       "  --borderless      Hide title bar (default)\n"
       "  --titled          Show title bar\n"
       "  --border-color COLOR  Preview edge: '#RRGGBB' or none (default: none)\n"
@@ -149,6 +150,8 @@ NSDictionary *VSParseCommand(NSArray<NSString *> *args, NSString **error) {
                 key = @"shadow"; value = @([flag isEqual:@"--shadow"]);
             } else if ([flag isEqual:@"--hi-perf"] || [flag isEqual:@"--no-hi-perf"]) {
                 key = @"hiPerf"; value = @([flag isEqual:@"--hi-perf"]);
+            } else if ([flag isEqual:@"--main"]) {
+                key = @"main"; value = @YES;
             } else if ([flag isEqual:@"--border-color"]) {
                 if (index == args.count) { problem = @"Missing value for --border-color"; break; }
                 NSString *color = [args[index++] lowercaseString];

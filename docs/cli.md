@@ -34,6 +34,7 @@ Names start with a letter or underscore, followed by letters, digits, `_`, `.`, 
 | `--size WxH` | Preview content size; 240–7680 wide, 135–4320 high |
 | `--position XxY` | Preview content position in the global desktop coordinate system |
 | `--origin XxY` | Virtual display position in macOS's display arrangement |
+| `--main` | Make this virtual the main display (menu bar, Dock, new windows). Every display shifts by the same amount, so the arrangement keeps its shape; `--origin` and `--position` in the same command are read before that shift, and the preview moves with the displays so it stays on the same screen. When the virtual closes, macOS picks a new main |
 | `--borderless` / `--titled` | Hide/show title bar and traffic lights |
 | `--hide` / `--show` | Hide/show the preview while keeping its display connected. A preview whose screen disconnects hides itself in place; `--show` restores it |
 | `--border-color '#RRGGBB'` / `--border-color none` | Optional one-pixel preview edge; default none |
@@ -45,6 +46,8 @@ Defaults: **1920×1080 at 60 Hz**, **960×540 preview**, borderless, no border o
 ## Coordinates
 
 Both coordinate options use the **main display's top-left as `0x0`**, with X increasing right and Y increasing down. Negative values put a window or display left of/above the main display. `--position` refers to the preview's content, so adding a title bar does not move its image. `--screens` reports the current display origins and logical sizes in these coordinates.
+
+`--main` changes which display is at `0x0`, so every origin and preview position shifts with it. The preview doesn't move on screen, but its reported `position` changes. Reread `screens` afterwards.
 
 macOS can adjust the arrangement when displays overlap or have gaps, including moving neighboring physical displays. Use touching, non-overlapping rectangles and check `--screens` after changing origins or resolutions.
 

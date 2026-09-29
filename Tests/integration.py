@@ -146,6 +146,33 @@ with tempfile.TemporaryDirectory(prefix="vs-integration-", dir="/tmp") as direct
             shown = json.loads(run("Guest", env=env).stdout)
             assert shown["visible"] is True and shown["position"] == guest_position, shown
             run("Guest", "--close", env=env)
+            # --main moves the virtual to 0x0 and every other display by the same amount; closing it hands main back.
+            run("--new", "Primary", "--resolution", "800x600", "--size", "240x135", "--position", "50x60", env=env)
+            arranged = screens()
+            primary = json.loads(run("Primary", env=env).stdout)
+            assert primary["main"] is False, primary
+            run("Primary", "--main", env=env)
+            promoted = json.loads(run("Primary", env=env).stdout)
+            assert promoted["main"] is True and promoted["origin"] == [0, 0], promoted
+            dx, dy = primary["origin"]
+            # The preview moves with the displays, so it stays on the screen it was on.
+            assert promoted["position"] == [50 - dx, 60 - dy], promoted
+            assert run("screens", "--main").stdout.strip() == str(primary["id"])
+            shifted = {i: [s["origin"][0] - dx, s["origin"][1] - dy] for i, s in arranged.items()}
+            assert {i: s["origin"] for i, s in screens().items()} == shifted, (arranged, screens())
+            run("Primary", "--main", env=env)  # Already main: nothing moves.
+            assert {i: s["origin"] for i, s in screens().items()} == shifted
+            run("Primary", "--close", env=env)
+            wait_for(lambda: screens() == {i: s for i, s in arranged.items() if i != primary["id"]})
+            # In one --new, --origin and --position are read before the shift as well.
+            right_edge = max(s["origin"][0] + s["size"][0] for s in screens().values())
+            run("--new", "Primary", "--resolution", "800x600", "--size", "240x135", "--position", "50x60",
+                "--origin", f"{right_edge}x0", "--main", env=env)
+            created = json.loads(run("Primary", env=env).stdout)
+            assert created["main"] is True and created["origin"] == [0, 0], created
+            assert created["position"] == [50 - right_edge, 60], created
+            run("Primary", "--close", env=env)
+            wait_for(lambda: screens() == {i: s for i, s in arranged.items() if i != primary["id"]})
             run("--new", "Race", "--resolution", "800x600", "--hide", env=env)
             run("close", env=env)
             assert run("--list", env=env).stdout == ""

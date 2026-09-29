@@ -21,6 +21,8 @@ static NSArray *pointArray(CGPoint p) { return @[@(p.x), @(p.y)]; }
 static NSArray *sizeArray(CGSize p) { return @[@(p.width), @(p.height)]; }
 static CGPoint arrayPoint(NSArray *p) { return CGPointMake([p[0] doubleValue], [p[1] doubleValue]); }
 static CGSize arraySize(NSArray *p) { return CGSizeMake([p[0] doubleValue], [p[1] doubleValue]); }
+// Becoming main moves every display by -origin; shifting a preview position the same way keeps it on the same screen.
+static NSArray *shifted(NSArray *p, CGPoint by) { return @[@([p[0] doubleValue] - by.x), @([p[1] doubleValue] - by.y)]; }
 static CGFloat primaryHeight(void) { return NSScreen.screens.firstObject.frame.size.height; }
 static NSRect contentRect(NSWindow *window) { return [window contentRectForFrameRect:window.frame]; }
 static CGPoint previewPosition(NSWindow *window) {
@@ -194,7 +196,7 @@ static OSStatus hotKey(EventHandlerCallRef handler, EventRef event, void *contex
     CGDirectDisplayID display = desktop.display.displayID;
     return @{@"name": name, @"id": @(display), @"resolution": @[@(CGDisplayPixelsWide(display)), @(CGDisplayPixelsHigh(display))],
         @"size": sizeArray(contentRect(desktop.window).size), @"position": pointArray(previewPosition(desktop.window)),
-        @"origin": pointArray(CGDisplayBounds(display).origin), @"borderless": @((BOOL)!(desktop.window.styleMask & NSWindowStyleMaskTitled)),
+        @"origin": pointArray(CGDisplayBounds(display).origin), @"main": @((BOOL)CGDisplayIsMain(display)), @"borderless": @((BOOL)!(desktop.window.styleMask & NSWindowStyleMaskTitled)),
         @"visible": @(desktop.window.visible), @"live": @(desktop.receivedFrame), @"windowLevel": @(desktop.window.level),
         @"borderColor": desktop.borderColor, @"shadow": @(desktop.window.hasShadow), @"hiPerf": @(desktop.hiPerf),
         @"captureError": desktop.captureError ?: NSNull.null};
@@ -208,21 +210,45 @@ static OSStatus hotKey(EventHandlerCallRef handler, EventRef event, void *contex
     }
     return nil;
 }
-- (void)configure:(VSDesktop *)desktop origin:(CGPoint)origin attempts:(NSUInteger)attempts completion:(void (^)(NSString *))completion {
+// With main, the display goes to 0x0 (which makes it main) and every other display shifts by -origin in
+// the same transaction, so the arrangement keeps its shape. This is the only path that moves displays
+// VScreen does not own, and it only translates them; see "XREAL as the only display" in docs.
+- (void)configure:(VSDesktop *)desktop origin:(CGPoint)origin main:(BOOL)main attempts:(NSUInteger)attempts completion:(void (^)(NSString *))completion {
     if (_stopping || !desktop.display) { completion(@"Desktop was closed."); return; }
     CGDirectDisplayID display = desktop.display.displayID;
+    NSArray *online = VSOnlineDisplays();
     CGDisplayConfigRef config = NULL;
-    CGError result = [VSOnlineDisplays() containsObject:@(display)] ? CGBeginDisplayConfiguration(&config) : kCGErrorCannotComplete;
+    CGError result = [online containsObject:@(display)] ? CGBeginDisplayConfiguration(&config) : kCGErrorCannotComplete;
     if (result == kCGErrorSuccess) result = CGConfigureDisplayMirrorOfDisplay(config, display, kCGNullDirectDisplay);
-    if (result == kCGErrorSuccess) result = CGConfigureDisplayOrigin(config, display, (int32_t)origin.x, (int32_t)origin.y);
+    if (result == kCGErrorSuccess) result = main ? CGConfigureDisplayOrigin(config, display, 0, 0)
+        : CGConfigureDisplayOrigin(config, display, (int32_t)origin.x, (int32_t)origin.y);
+    for (NSNumber *other in main ? online : @[]) {
+        CGDirectDisplayID otherID = other.unsignedIntValue;
+        if (result != kCGErrorSuccess) break;
+        if (otherID == display || CGDisplayMirrorsDisplay(otherID) != kCGNullDirectDisplay) continue;
+        CGRect bounds = CGDisplayBounds(otherID);
+        result = CGConfigureDisplayOrigin(config, otherID, (int32_t)(bounds.origin.x - origin.x), (int32_t)(bounds.origin.y - origin.y));
+    }
     if (result == kCGErrorSuccess) result = CGCompleteDisplayConfiguration(config, kCGConfigureForSession);
     else if (config) CGCancelDisplayConfiguration(config);
-    if (result == kCGErrorSuccess) { completion(nil); return; }
+    if (result == kCGErrorSuccess) {
+        if (main) [self awaitMain:display attempts:30 completion:completion]; else completion(nil);
+        return;
+    }
     if (attempts > 1) {
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC / 10), dispatch_get_main_queue(), ^{
-            [self configure:desktop origin:origin attempts:attempts - 1 completion:completion];
+            [self configure:desktop origin:origin main:main attempts:attempts - 1 completion:completion];
         });
     } else completion([NSString stringWithFormat:@"Could not arrange display (CoreGraphics %d).", result]);
+}
+// Preview frames convert through NSScreen's first screen, which AppKit updates a little after CoreGraphics.
+- (void)awaitMain:(CGDirectDisplayID)display attempts:(NSUInteger)attempts completion:(void (^)(NSString *))completion {
+    NSNumber *first = NSScreen.screens.firstObject.deviceDescription[@"NSScreenNumber"];
+    if (CGDisplayIsMain(display) && first.unsignedIntValue == display) { completion(nil); return; }
+    if (attempts == 0) { completion(@"macOS did not make the display main."); return; }
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC / 10), dispatch_get_main_queue(), ^{
+        [self awaitMain:display attempts:attempts - 1 completion:completion];
+    });
 }
 - (void)capture:(VSDesktop *)desktop visible:(BOOL)visible completion:(void (^)(NSError *))completion {
     if (self.testMode) {
@@ -348,8 +374,12 @@ static OSStatus hotKey(EventHandlerCallRef handler, EventRef event, void *contex
         VSController *self = weakSelf;
         if (self && self->_desktops[name] == closed) [self->_desktops removeObjectForKey:name];
     };
-    [self configure:desktop origin:origin attempts:30 completion:^(NSString *failure) {
+    BOOL main = [changes[@"main"] boolValue];
+    [self configure:desktop origin:origin main:main attempts:30 completion:^(NSString *failure) {
         if (failure) { [self->_desktops removeObjectForKey:name]; [desktop stop]; reply(VSFailure(failure)); return; }
+        // --position was given before the shift, so move it with the displays.
+        if (main) [desktop.window setFrame:[desktop.window frameRectForContentRect:
+            previewRect(arrayPoint(shifted(pointArray(position), origin)), size)] display:NO];
         BOOL visible = changes[@"visible"] ? [changes[@"visible"] boolValue] : YES;
         [self capture:desktop visible:visible completion:^(NSError *captureError) {
             if (captureError) {
@@ -380,6 +410,7 @@ static OSStatus hotKey(EventHandlerCallRef handler, EventRef event, void *contex
         CGSize size = arraySize(changes[@"resolution"] ?: before[@"resolution"]);
         BOOL modeOK = !resolutionChange || [desktop.display setWidth:(NSUInteger)size.width height:(NSUInteger)size.height fps:60 error:&modeError];
         CGPoint origin = arrayPoint(changes[@"origin"] ?: before[@"origin"]);
+        BOOL main = [changes[@"main"] boolValue];
         void (^finish)(NSString *) = ^(NSString *layoutError) {
             NSString *failure = modeOK ? layoutError : modeError.localizedDescription;
             if (failure && resolutionChange && modeOK) {
@@ -389,13 +420,22 @@ static OSStatus hotKey(EventHandlerCallRef handler, EventRef event, void *contex
                     failure = [failure stringByAppendingFormat:@" Rollback also failed: %@", rollbackError.localizedDescription];
             }
             void (^complete)(NSError *) = ^(NSError *captureError) {
-                if (!failure && !captureError) [self applyPreviewChanges:changes to:desktop previous:before];
+                if (!failure && !captureError) {
+                    // Positions in this command, and the preview's old one, predate the shift; move them with the displays.
+                    NSMutableDictionary *previous = [before mutableCopy], *moved = [changes mutableCopy];
+                    if (main) {
+                        previous[@"position"] = shifted(before[@"position"], origin);
+                        if (changes[@"position"]) moved[@"position"] = shifted(changes[@"position"], origin);
+                    }
+                    [self applyPreviewChanges:moved to:desktop previous:previous];
+                }
                 reply(failure || captureError ? VSFailure(failure ?: captureError.localizedDescription) : VSReply(@""));
             };
             if (resolutionChange) [self capture:desktop visible:[before[@"visible"] boolValue] completion:complete];
             else complete(nil);
         };
-        if (modeOK && (changes[@"origin"] || resolutionChange)) [self configure:desktop origin:origin attempts:30 completion:finish];
+        if (modeOK && (changes[@"origin"] || resolutionChange || main))
+            [self configure:desktop origin:origin main:main attempts:30 completion:finish];
         else finish(nil);
     };
     if (resolutionChange && !self.testMode) [desktop pauseCapture:apply]; else apply();

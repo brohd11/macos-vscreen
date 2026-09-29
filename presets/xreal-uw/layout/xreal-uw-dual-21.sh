@@ -28,17 +28,31 @@ validate_width "$left_width"
 validate_width "$right_width"
 [ "$height" -ge 480 ] && [ "$height" -le 4320 ] ||
     fail "virtual height must be 480–4320 pixels; XREAL reports $height. Nothing changed."
-main=$(vsrun screens --main)
-main_origin=$(vsrun screens "$main" --origin)
-main_size=$(vsrun screens "$main" --size)
 
-# Center the entire contiguous row directly above the main display.
-origin_x=$((${main_origin%x*} + (${main_size%x*} - width) / 2))
-origin_y=$((${main_origin#*x} - height))
+main=$(vsrun screens --main)
+# With XREAL as the only physical display, main is XREAL, or one of these virtuals after an earlier run.
+# The row then goes directly above XREAL and one virtual becomes main, so the menu bar, Dock, and new
+# windows land on a desktop the previews show instead of on XREAL underneath them.
+solo=0
+[ "$main" = "$xr" ] && solo=1
+case $(vsrun screens "$main" --name) in "$left"|"$center"|"$right") solo=1 ;; esac
 # The triple layout's center display would overlap this row; closing a missing display is a no-op.
+# Close it before reading XREAL's origin, since closing a main Center moves XREAL.
 vsrun "$center" --close
+if [ "$solo" -eq 1 ]; then
+    xr_origin=$(vsrun screens "$xr" --origin)
+    origin_x=${xr_origin%x*}
+    origin_y=$((${xr_origin#*x} - height))
+else
+    main_origin=$(vsrun screens "$main" --origin)
+    main_size=$(vsrun screens "$main" --size)
+    # Center the entire contiguous row directly above the main display.
+    origin_x=$((${main_origin%x*} + (${main_size%x*} - width) / 2))
+    origin_y=$((${main_origin#*x} - height))
+fi
 vsrun --new "$left" --resolution "${left_width}x${height}" --size "${left_width}x${height}" --origin "${origin_x}x${origin_y}" --borderless --hide
 vsrun --new "$right" --resolution "${right_width}x${height}" --size "${right_width}x${height}" --origin "$((origin_x + left_width))x${origin_y}" --borderless --hide
+[ "$solo" -eq 0 ] || vsrun "$left" --main
 
 # Connecting displays can move XREAL. Position previews using its new origin,
 # but never stretch the captured image if its logical size changed mid-setup.

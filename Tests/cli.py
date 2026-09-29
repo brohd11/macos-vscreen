@@ -50,6 +50,7 @@ class CLITests(unittest.TestCase):
                  ("UWLeft", "--border-color", "#123"), ("UWLeft", "--border-color", "#gg0000"),
                  ("UWLeft", "--border-color", "none", "--border-color", "#123456"),
                  ("UWLeft", "--shadow", "--no-shadow"), ("UWLeft", "--hi-perf", "--no-hi-perf"),
+                 ("UWLeft", "--main", "--main"), ("UWLeft", "--main", "extra"),
                  ("layout", "../escape"), ("layout", ""), ("--layout", "a/b"),
                  ("layout", "--list", "extra"), ("--new", "layout"),
                  ("screens", "1", "--aspect", "extra"), ("login", "--bogus"), ("login", "--enable", "extra"),
@@ -92,7 +93,7 @@ class CLITests(unittest.TestCase):
 
     def test_signed_coordinates_and_combined_settings(self):
         args = ("--new", "UWLeft", "--resolution", "1920x1080", "--size", "960x540",
-                "--position", "-1216x-2160", "--origin", "-1216x-1080", "--borderless")
+                "--position", "-1216x-2160", "--origin", "-1216x-1080", "--borderless", "--main")
         result = self.exchange(args, {"ok": True, "output": ""})
         self.assertEqual((result.returncode, result.stdout, result.stderr), (0, "", ""))
 

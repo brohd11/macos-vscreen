@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: Version to embed in the manual build (MAJOR.MINOR.PATCH)
+        description: Version to embed in the manual build (MAJOR.MINOR.PATCH[-PRERELEASE])
         required: true
         default: "0.0.0"
         type: string
@@ -30,6 +30,7 @@ jobs:
       contents: read
     outputs:
       version: ${{ steps.version.outputs.version }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
 
     steps:
       - uses: actions/checkout@v4
@@ -43,11 +44,12 @@ jobs:
           MANUAL_VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
-          semver='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'
+          # MAJOR.MINOR.PATCH with an optional -PRERELEASE suffix (e.g. 0.1.0-alpha.1).
+          semver='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z]+(\.[0-9A-Za-z]+)*)?$'
           if [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
             version="${GITHUB_REF_NAME#v}"
             if [[ "$GITHUB_REF_NAME" != v* || ! "$version" =~ $semver ]]; then
-              echo "Release tags must use vMAJOR.MINOR.PATCH without leading zeroes." >&2
+              echo "Release tags must use vMAJOR.MINOR.PATCH[-PRERELEASE] without leading zeroes." >&2
               exit 1
             fi
             release_commit="$(git rev-parse "${GITHUB_REF_NAME}^{commit}")"
@@ -59,11 +61,18 @@ jobs:
           else
             version="$MANUAL_VERSION"
             if [[ ! "$version" =~ $semver ]]; then
-              echo "Manual versions must use MAJOR.MINOR.PATCH without leading zeroes." >&2
+              echo "Manual versions must use MAJOR.MINOR.PATCH[-PRERELEASE] without leading zeroes." >&2
               exit 1
             fi
           fi
-          echo "version=$version" >> "$GITHUB_OUTPUT"
+          # package.sh stamps CFBundleShortVersionString, which must stay numeric.
+          base_version="${version%%-*}"
+          if [[ "$version" == "$base_version" ]]; then prerelease=false; else prerelease=true; fi
+          {
+            echo "version=$version"
+            echo "base_version=$base_version"
+            echo "prerelease=$prerelease"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Show build environment
         run: |
@@ -81,7 +90,7 @@ jobs:
 
       - name: Build, sign, verify and archive
         env:
-          VERSION: ${{ steps.version.outputs.version }}
+          VERSION: ${{ steps.version.outputs.base_version }}
         run: scripts/package.sh "$VERSION" "$GITHUB_RUN_NUMBER" dist
 
       - name: Verify checksums
@@ -149,4 +158,5 @@ jobs:
           name: ${{ github.ref_name }}
           files: dist/*
           body_path: ${{ steps.notes.outputs.changelog }}
-          make_latest: true
+          prerelease: ${{ needs.build.outputs.prerelease }}
+          make_latest: ${{ needs.build.outputs.prerelease == 'true' && 'false' || 'true' }}

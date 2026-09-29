@@ -254,9 +254,12 @@ static OSStatus hotKey(EventHandlerCallRef handler, EventRef event, void *contex
                               @"pid": @(getpid()), @"testMode": @(self.testMode)}))); return;
     }
     if ([action isEqual:@"permissions"]) {
-        CGRequestScreenCaptureAccess();
-        [NSWorkspace.sharedWorkspace openURL:[NSURL URLWithString:@"x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"]];
-        reply(VSReply(@"Enable VScreen in Screen & System Audio Recording, then run vscreen quit before creating a desktop.")); return;
+        if (CGPreflightScreenCaptureAccess()) { reply(VSReply(@"VScreen already has Screen Recording permission.")); return; }
+        CGRequestScreenCaptureAccess();  // Shows the system dialog only while the permission is undecided.
+        reply(VSReply(@"Enable VScreen in System Settings → Privacy & Security → Screen & System Audio Recording, "
+                      "then run vscreen quit before creating a desktop.\n"
+                      "If no dialog appeared, open that pane yourself, or reset VScreen first: "
+                      "tccutil reset ScreenCapture local.vscreen")); return;
     }
     if ([action isEqual:@"login"]) { reply([self loginItem:command[@"enable"]]); return; }
     if ([action isEqual:@"quit"]) {

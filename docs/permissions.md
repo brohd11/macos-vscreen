@@ -6,7 +6,7 @@ VScreen needs **Screen Recording** to draw live previews. Accessibility is not r
 vscreen --request-permissions
 ```
 
-Enable **VScreen** under **System Settings → Privacy & Security → Screen & System Audio Recording**, then run `vscreen quit` before creating a desktop. The CLI automatically starts the app through LaunchServices, so permission belongs to VScreen rather than Terminal.
+This shows the macOS permission prompt; its button opens **System Settings → Privacy & Security → Screen & System Audio Recording**. Enable **VScreen** there, then run `vscreen quit` before creating a desktop. macOS shows the prompt only while the permission is undecided. If nothing appears, open that pane yourself, or reset VScreen as below and retry. If permission is already granted, the command just says so. The CLI automatically starts the app through LaunchServices, so permission belongs to VScreen rather than Terminal.
 
 Read-only [screen queries](screen-queries.md) work without this permission.
 

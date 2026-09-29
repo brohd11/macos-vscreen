@@ -5,23 +5,21 @@
 For automatic preview placement, run from the project root:
 
 ```sh
-./examples/xreal-uw-dual.sh
+./presets/xreal-uw/layout/xreal-uw-dual.sh
 ```
 
 Uses only shell built-ins and `vscreen` on PATH (`VSCREEN_BIN=/path/to/vscreen` overrides it); no Python, jq, or grep required. The script finds the first display whose name begins with `XREAL` and splits its current logical width between UWLeft/UWRight. Both use its full logical height, and each virtual resolution matches its preview size. Odd widths give the extra pixel to the right display.
 
-For three displays, run `./examples/xreal-uw-triple.sh`. It reuses UWLeft/UWRight and adds UWCenter: each side gets one quarter of XREAL's logical width and the center gets the remainder, all at its full height. Both examples fill XREAL edge to edge without stretching fixed-resolution desktops or adding margins.
+For three displays, run `./presets/xreal-uw/layout/xreal-uw-triple.sh`. It reuses UWLeft/UWRight and adds UWCenter: each side gets one quarter of XREAL's logical width and the center gets the remainder, all at its full height. Both examples fill XREAL edge to edge without stretching fixed-resolution desktops or adding margins.
 
-To run the dual layout from anywhere without a source checkout, install it as a [layout](cli.md#layouts):
+To run them from anywhere without a source checkout, install the `xreal-uw` preset. It writes both [layouts](cli.md#layouts) plus an [auto-connect hook](auto-connect.md#xreal-example):
 
 ```sh
-vscreen --generate-example
-vscreen layout xreal-uw-dual
+vscreen generate xreal-uw
+vscreen layout xreal-uw-dual      # or xreal-uw-triple
 ```
 
-For the triple layout, copy it from a checkout: `cp examples/xreal-uw-triple.sh ~/.vscreen/layout/`.
-
-Sources: [xreal-uw-dual.sh](../examples/xreal-uw-dual.sh), [xreal-uw-triple.sh](../examples/xreal-uw-triple.sh).
+Sources: [xreal-uw-dual.sh](../presets/xreal-uw/layout/xreal-uw-dual.sh), [xreal-uw-triple.sh](../presets/xreal-uw/layout/xreal-uw-triple.sh), [hook](../presets/xreal-uw/hooks/xreal-uw.sh).
 
 | XREAL logical size | Two-display widths | Three-display widths | Height of every virtual |
 | --- | --- | --- | --- |
@@ -31,7 +29,7 @@ Sources: [xreal-uw-dual.sh](../examples/xreal-uw-dual.sh), [xreal-uw-triple.sh](
 
 Both scripts center the virtual row directly above the main display in Arrange, then reread XREAL's origin to position the previews. They use logical desktop dimensions from `screens ID --size`, not Retina backing pixels; no HiDPI mode is introduced. Rerun after moving, resizing, or reconnecting XREAL. Physical displays are not explicitly rearranged.
 
-Missing XREAL or a layout outside the supported resolution limits (480–7680 wide, 480–4320 high per virtual) aborts before changes. If XREAL disconnects or changes size during setup, the scripts leave the previews hidden and ask you to rerun. To return from three displays to two, close the extra center with `vscreen UWCenter --close`, then rerun `./examples/xreal-uw-dual.sh`.
+Missing XREAL or a layout outside the supported resolution limits (480–7680 wide, 480–4320 high per virtual) aborts before changes. If XREAL disconnects or changes size during setup, the scripts leave the previews hidden and ask you to rerun. To return from three displays to two, close the extra center with `vscreen UWCenter --close`, then rerun `vscreen layout xreal-uw-dual`.
 
 ## Manual arrangement
 

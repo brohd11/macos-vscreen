@@ -181,6 +181,7 @@ static OSStatus hotKey(EventHandlerCallRef handler, EventRef event, void *contex
     CGDisplayRegisterReconfigurationCallback(displaysReconfigured, (__bridge void *)self);
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(screensChanged:)
         name:NSApplicationDidChangeScreenParametersNotification object:nil];
+    if ([self hooksEnabled] && !VSEnsureConfig(&error)) fprintf(stderr, "%s\n", error.UTF8String);
     if (self.launchHooks && [self hooksEnabled]) [self runHooks:@"launch"];
     signal(SIGINT, SIG_IGN); signal(SIGTERM, SIG_IGN);
     _interrupt = dispatch_source_create(DISPATCH_SOURCE_TYPE_SIGNAL, SIGINT, 0, dispatch_get_main_queue());
@@ -277,7 +278,7 @@ static OSStatus hotKey(EventHandlerCallRef handler, EventRef event, void *contex
         [self awaitRemoval:ids attempts:50 completion:reply]; return;
     }
     if ([action isEqual:@"help"]) { reply(VSReply(VSUsage())); return; }
-    if ([@[@"hooks", @"layout", @"generate-example"] containsObject:action]) {
+    if ([@[@"hooks", @"layout", @"generate"] containsObject:action]) {
         reply(VSFailure(@"This command runs in the vscreen client, not the app.")); return;
     }
     NSString *selector = command[@"name"];

@@ -49,12 +49,12 @@ with tempfile.TemporaryDirectory(prefix="vs-integration-", dir="/tmp") as direct
     env = dict(os.environ, VSCREEN_RUNTIME_DIR=directory)
     log_path = pathlib.Path(directory) / "host.log"
     # Display-change hooks must ignore VScreen's own displays, or layout scripts would retrigger themselves.
-    hook_dir, hook_marker = pathlib.Path(directory) / "layout", pathlib.Path(directory) / "hook-fired"
+    hook_dir, hook_marker = pathlib.Path(directory) / "hooks", pathlib.Path(directory) / "hook-fired"
     hook_dir.mkdir()
     (hook_dir / "record.sh").write_text(f'#!/bin/sh\necho "$VSCREEN_EVENT" >> "{hook_marker}"\n')
     (hook_dir / "record.sh").chmod(0o755)
     (pathlib.Path(directory) / "config.yaml").write_text("onDisplayChange: [record]\n")
-    hook_env = dict(os.environ, VSCREEN_CONFIG=directory + "/config.yaml", VSCREEN_LAYOUT_DIR=str(hook_dir))
+    hook_env = dict(os.environ, VSCREEN_CONFIG=directory + "/config.yaml", VSCREEN_LAYOUT_DIR=directory + "/layout")
     with log_path.open("w+") as log:
         host = subprocess.Popen([str(BIN), "--serve-test", directory], stdout=log, stderr=log, env=hook_env)
         try:

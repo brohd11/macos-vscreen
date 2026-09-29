@@ -18,10 +18,13 @@ NSString *VSUsage(void) {
       "  vscreen screens ID --aspect      Logical aspect ratio as reduced W:H (e.g. 32:9)\n"
       "  vscreen layout NAME [ARGS...]    Run layout script NAME[.sh] from ~/.vscreen/layout (alias: --layout)\n"
       "  vscreen layout --list            Available layout names\n"
-      "  vscreen hooks                    Display-change hooks from ~/.vscreen/config.yaml\n"
-      "  vscreen hooks --run              Run the hooks now, in this terminal\n"
+      "  vscreen hooks                    Enabled hooks (onDisplayChange in ~/.vscreen/config.yaml)\n"
+      "  vscreen hooks --list             Hook scripts in ~/.vscreen/hooks: enabled, disabled, or missing\n"
+      "  vscreen hooks --enable NAME      Add hook NAME to onDisplayChange (--disable NAME removes it)\n"
+      "  vscreen hooks --run              Run the enabled hooks now, in this terminal\n"
       "  vscreen login [--enable|--disable]  Start VScreen at login and run hooks; bare shows status\n"
-      "  vscreen --generate-example       Write the XREAL dual layout (xreal-uw-dual) to ~/.vscreen/layout\n"
+      "  vscreen generate PRESET          Write a preset's hooks and layouts (e.g. xreal-uw); never overwrites edits\n"
+      "  vscreen generate --list          Available presets\n"
       "  vscreen --check                  Report the app's Screen Recording permission\n"
       "  vscreen --request-permissions    Request Screen Recording for VScreen\n"
       "  vscreen quit                     Close all owned desktops and stop app (alias: --quit)\n"
@@ -94,9 +97,18 @@ NSDictionary *VSParseCommand(NSArray<NSString *> *args, NSString **error) {
         return nil;
     }
     if ([first isEqual:@"hooks"]) {
-        if (args.count == 1 || (args.count == 2 && [args[1] isEqual:@"--run"]))
-            return @{@"action": @"hooks", @"run": @(args.count == 2)};
+        if (args.count == 1) return @{@"action": @"hooks"};
+        if (args.count == 2 && ([args[1] isEqual:@"--run"] || [args[1] isEqual:@"--list"]))
+            return @{@"action": @"hooks", @"query": [args[1] substringFromIndex:2]};
+        if (args.count == 3 && ([args[1] isEqual:@"--enable"] || [args[1] isEqual:@"--disable"]) && VSValidName(args[2]))
+            return @{@"action": @"hooks", @"query": [args[1] substringFromIndex:2], @"name": args[2]};
         if (error) *error = @"Invalid hooks command. Run vscreen --help.";
+        return nil;
+    }
+    if ([first isEqual:@"generate"]) {
+        if (args.count == 1 || (args.count == 2 && [args[1] isEqual:@"--list"])) return @{@"action": @"generate"};
+        if (args.count == 2 && VSValidName(args[1])) return @{@"action": @"generate", @"name": args[1]};
+        if (error) *error = @"Invalid generate command. Run vscreen --help.";
         return nil;
     }
     if ([first isEqual:@"login"]) {
@@ -108,7 +120,7 @@ NSDictionary *VSParseCommand(NSArray<NSString *> *args, NSString **error) {
     }
     if ([first isEqual:@"--list"] && (args.count == 1 || (args.count == 2 && [args[1] isEqual:@"--json"])))
         return @{@"action": @"list", @"json": @(args.count == 2)};
-    NSDictionary *simple = @{@"--screens": @"screens", @"--check": @"check", @"quit": @"quit", @"--quit": @"quit", @"--request-permissions": @"permissions", @"--generate-example": @"generate-example"};
+    NSDictionary *simple = @{@"--screens": @"screens", @"--check": @"check", @"quit": @"quit", @"--quit": @"quit", @"--request-permissions": @"permissions"};
     if (simple[first] && args.count == 1) return @{@"action": simple[first]};
     if ([first isEqual:@"close"] || [first isEqual:@"--close"]) {
         if (args.count == 1) return @{@"action": @"close", @"all": @YES};

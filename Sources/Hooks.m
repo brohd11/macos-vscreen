@@ -1,11 +1,43 @@
 #import "Hooks.h"
 #import "Command.h"
 #import "Layout.h"
+#include <fcntl.h>
+#include <unistd.h>
 #include <yaml.h>
 
 NSString *VSConfigPath(void) {
     NSString *custom = NSProcessInfo.processInfo.environment[@"VSCREEN_CONFIG"];
     return custom.length ? custom : [NSHomeDirectory() stringByAppendingPathComponent:@".vscreen/config.yaml"];
+}
+
+NSString *VSHookDirectory(void) {
+    return [VSConfigPath().stringByDeletingLastPathComponent stringByAppendingPathComponent:@"hooks"];
+}
+
+static NSString *const defaultConfig = @
+    "# VScreen config. Hooks are scripts in ~/.vscreen/hooks; only the ones listed here run.\n"
+    "# Toggle one with: vscreen hooks --enable NAME / --disable NAME\n"
+    "onDisplayChange:\n";
+
+BOOL VSEnsureConfig(NSString **error) {
+    NSFileManager *manager = NSFileManager.defaultManager;
+    NSString *path = VSConfigPath();
+    NSError *failure = nil;
+    for (NSString *directory in @[path.stringByDeletingLastPathComponent, VSHookDirectory(), VSLayoutDirectory()]) {
+        if (![manager createDirectoryAtPath:directory withIntermediateDirectories:YES attributes:nil error:&failure]) {
+            if (error) *error = [NSString stringWithFormat:@"Cannot create %@: %@", directory, failure.localizedDescription];
+            return NO;
+        }
+    }
+    if ([manager fileExistsAtPath:path]) return YES;
+    // Exclusive create, so a config written concurrently is never replaced.
+    int fd = open(path.fileSystemRepresentation, O_WRONLY | O_CREAT | O_EXCL, 0644);
+    if (fd < 0 && errno == EEXIST) return YES;
+    const char *text = defaultConfig.UTF8String;
+    BOOL written = fd >= 0 && write(fd, text, strlen(text)) == (ssize_t)strlen(text);
+    if (fd >= 0) close(fd);
+    if (!written && error) *error = [NSString stringWithFormat:@"Cannot write %@: %s", path, strerror(errno)];
+    return written;
 }
 
 // Scalars stay strings: hook entries are layout names and arguments. A bare empty value is NSNull.
@@ -56,10 +88,7 @@ static id loadYAML(NSData *data, NSString **problem) {
     return result;
 }
 
-NSArray<NSArray<NSString *> *> *VSLoadHooks(NSString **error) {
-    NSString *path = VSConfigPath();
-    NSData *data = [NSData dataWithContentsOfFile:path];
-    if (!data) return @[];
+static NSArray<NSArray<NSString *> *> *hooksFromData(NSData *data, NSString *path, NSString **error) {
     NSString *problem = nil;
     id config = loadYAML(data, &problem);
     NSMutableArray *hooks = [NSMutableArray new];
@@ -72,7 +101,7 @@ NSArray<NSArray<NSString *> *> *VSLoadHooks(NSString **error) {
         BOOL valid = [hook isKindOfClass:NSArray.class] && hook.count > 0;
         for (id part in valid ? hook : @[]) valid &= [part isKindOfClass:NSString.class];
         if (!valid || !VSValidName(hook[0])) {
-            problem = [NSString stringWithFormat:@"invalid hook %@; use a layout name or [name, args...]",
+            problem = [NSString stringWithFormat:@"invalid hook %@; use a hook name or [name, args...]",
                        [entry isKindOfClass:NSString.class] ? entry : @"entry"];
             break;
         }
@@ -85,8 +114,94 @@ NSArray<NSArray<NSString *> *> *VSLoadHooks(NSString **error) {
     return hooks;
 }
 
+NSArray<NSArray<NSString *> *> *VSLoadHooks(NSString **error) {
+    NSString *path = VSConfigPath();
+    NSData *data = [NSData dataWithContentsOfFile:path];
+    return data ? hooksFromData(data, path, error) : @[];
+}
+
+static NSArray<NSString *> *hookNames(NSArray<NSArray<NSString *> *> *hooks) {
+    NSMutableArray *names = [NSMutableArray new];
+    for (NSArray *hook in hooks) [names addObject:hook[0]];
+    return names;
+}
+
+static BOOL matches(NSString *line, NSString *pattern) {
+    return [line rangeOfString:pattern options:NSRegularExpressionSearch].location != NSNotFound;
+}
+
+// Adds or removes NAME in onDisplayChange by editing lines, so comments and layout survive.
+// Returns nil when the config isn't in a shape this can edit (e.g. a non-empty flow list).
+static NSString *editConfig(NSString *text, NSString *name, BOOL enable) {
+    NSMutableArray<NSString *> *lines = [[text componentsSeparatedByString:@"\n"] mutableCopy];
+    if (lines.count > 1 && [lines.lastObject isEqual:@""]) [lines removeLastObject];
+    NSUInteger key = NSNotFound;
+    for (NSUInteger i = 0; i < lines.count && key == NSNotFound; i++)
+        if (matches(lines[i], @"^onDisplayChange\\s*:")) key = i;
+    if (key == NSNotFound) {
+        if (!enable) return nil;
+        [lines addObjectsFromArray:@[@"onDisplayChange:", [@"  - " stringByAppendingString:name]]];
+        return [[lines componentsJoinedByString:@"\n"] stringByAppendingString:@"\n"];
+    }
+    NSString *value = [lines[key] substringFromIndex:[lines[key] rangeOfString:@":"].location + 1];
+    value = [value stringByReplacingOccurrencesOfString:@"(^|\\s)#.*$" withString:@"" options:NSRegularExpressionSearch
+                                                  range:NSMakeRange(0, value.length)];
+    value = [value stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
+    if ([value isEqual:@"[]"] && enable) lines[key] = @"onDisplayChange:";
+    else if (value.length) return nil;
+    // The block runs while lines are blank, comments, indented, or zero-indent "- " items.
+    NSUInteger end = key + 1, last = key;
+    NSString *indent = nil;
+    for (; end < lines.count; end++) {
+        NSString *line = lines[end];
+        if (!matches(line, @"^(\\s|#|-(\\s|$)|$)")) break;
+        if (matches(line, @"^\\s*(#|$)")) continue;
+        last = end;
+        if (!indent && matches(line, @"^\\s*-"))
+            indent = [line substringToIndex:[line rangeOfString:@"-"].location];
+    }
+    if (enable) {
+        [lines insertObject:[NSString stringWithFormat:@"%@- %@", indent ?: @"  ", name] atIndex:last + 1];
+    } else {
+        NSString *quoted = [NSRegularExpression escapedPatternForString:name];
+        NSString *item = [NSString stringWithFormat:@"^\\s*-\\s+(%1$@|\"%1$@\"|'%1$@'|\\[\\s*%1$@\\s*(,[^\\]]*)?\\])\\s*(#.*)?$", quoted];
+        for (NSUInteger i = end; i > key + 1; i--)
+            if (matches(lines[i - 1], item)) [lines removeObjectAtIndex:i - 1];
+    }
+    return [[lines componentsJoinedByString:@"\n"] stringByAppendingString:@"\n"];
+}
+
+static int toggleHook(NSString *name, BOOL enable) {
+    NSString *error = nil, *path = VSConfigPath();
+    if (enable && (!VSScriptPath(VSHookDirectory(), @"hook", name, &error) || !VSEnsureConfig(&error))) {
+        fprintf(stderr, "%s\n", error.UTF8String); return 1;
+    }
+    NSData *data = [NSData dataWithContentsOfFile:path] ?: NSData.data;
+    NSArray *hooks = hooksFromData(data, path, &error);
+    if (!hooks) { fprintf(stderr, "%s\n", error.UTF8String); return 1; }
+    NSMutableArray *expected = [hookNames(hooks) mutableCopy];
+    if ([expected containsObject:name] == enable) return 0;
+    if (enable) [expected addObject:name];
+    else [expected removeObject:name];
+    NSString *text = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+    NSString *edited = text ? editConfig(text, name, enable) : nil;
+    NSData *output = [edited dataUsingEncoding:NSUTF8StringEncoding];
+    // Only write when the edited file parses to exactly the intended hook list.
+    NSArray *result = output ? hooksFromData(output, path, NULL) : nil;
+    if (!result || ![hookNames(result) isEqual:expected]) {
+        fprintf(stderr, "Cannot %s %s automatically; edit onDisplayChange in %s by hand.\n",
+                enable ? "enable" : "disable", name.UTF8String, path.UTF8String);
+        return 1;
+    }
+    NSError *failure = nil;
+    if (![output writeToFile:path options:NSDataWritingAtomic error:&failure]) {
+        fprintf(stderr, "Cannot write %s: %s\n", path.UTF8String, failure.localizedDescription.UTF8String); return 1;
+    }
+    return 0;
+}
+
 static NSTask *hookTask(NSArray<NSString *> *hook, NSString *event, NSString **error) {
-    NSString *path = VSLayoutPath(hook[0], error);
+    NSString *path = VSScriptPath(VSHookDirectory(), @"hook", hook[0], error);
     if (!path) return nil;
     NSMutableDictionary *environment = [NSProcessInfo.processInfo.environment mutableCopy];
     if (!environment[@"VSCREEN_BIN"]) environment[@"VSCREEN_BIN"] = NSBundle.mainBundle.executablePath;
@@ -100,10 +215,21 @@ static NSTask *hookTask(NSArray<NSString *> *hook, NSString *event, NSString **e
 }
 
 int VSRunHooksCommand(NSDictionary *command) {
+    NSString *query = command[@"query"];
+    if ([query isEqual:@"enable"] || [query isEqual:@"disable"])
+        return toggleHook(command[@"name"], [query isEqual:@"enable"]);
     NSString *error = nil;
     NSArray<NSArray<NSString *> *> *hooks = VSLoadHooks(&error);
     if (!hooks) { fprintf(stderr, "%s\n", error.UTF8String); return 1; }
-    if (![command[@"run"] boolValue]) {
+    if ([query isEqual:@"list"]) {
+        NSArray *enabled = hookNames(hooks), *scripts = VSScriptNames(VSHookDirectory());
+        for (NSString *name in scripts)
+            printf("%s\t%s\n", name.UTF8String, [enabled containsObject:name] ? "enabled" : "disabled");
+        for (NSString *name in [NSOrderedSet orderedSetWithArray:enabled])
+            if (![scripts containsObject:name]) printf("%s\tmissing\n", name.UTF8String);
+        return 0;
+    }
+    if (![query isEqual:@"run"]) {
         for (NSArray *hook in hooks) puts([hook componentsJoinedByString:@" "].UTF8String);
         return 0;
     }

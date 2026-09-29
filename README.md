@@ -35,6 +35,6 @@ vscreen Desktop1 --close                                       # Remove it
 - [CLI reference](docs/cli.md) — all commands, settings, coordinates, exit codes
 - [Screen queries](docs/screen-queries.md) — read-only display lookups for scripts
 - [Auto-connect](docs/auto-connect.md) — start at login and run layouts on display changes
-- [XREAL layouts](docs/xreal-layouts.md) — dual/triple example layouts
+- [XREAL layouts](docs/xreal-layouts.md) — dual/triple layouts and the `xreal-uw` preset
 - [Window controls](docs/window-controls.md) — shortcuts and app lifecycle
 - [Development](docs/development.md) — architecture and tests

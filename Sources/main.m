@@ -14,7 +14,7 @@ static int client(NSArray<NSString *> *arguments) {
     NSString *action = command[@"action"];
     if ([action isEqual:@"help"]) { fputs(VSUsage().UTF8String, stdout); return 0; }
     if ([action isEqual:@"layout"]) return VSRunLayout(command);
-    if ([action isEqual:@"generate-example"]) return VSGenerateExample();
+    if ([action isEqual:@"generate"]) return VSGenerate(command);
     // Hooks call vscreen, so they must not run inside a request the app is still serving.
     if ([action isEqual:@"hooks"]) return VSRunHooksCommand(command);
     if ([action isEqual:@"screens"]) {

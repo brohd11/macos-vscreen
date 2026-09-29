@@ -15,6 +15,7 @@ FRAMEWORKS := -framework Cocoa -framework CoreGraphics -framework ScreenCaptureK
 all: $(BIN)
 
 ICONS := Resources/AppIcon.icns Resources/MenuBarIcon.png Resources/MenuBarIcon@2x.png
+PRESETS := $(wildcard presets/*/*/*)
 
 build/libyaml/%.o: Vendor/libyaml/src/%.c Vendor/libyaml/src/yaml_private.h Vendor/libyaml/include/yaml.h Makefile
 	mkdir -p build/libyaml
@@ -23,11 +24,12 @@ build/libyaml/%.o: Vendor/libyaml/src/%.c Vendor/libyaml/src/yaml_private.h Vend
 $(YAML_LIB): $(YAML_OBJECTS)
 	rm -f $@ && xcrun libtool -static -o $@ $^
 
-$(BIN): $(SOURCES) $(wildcard Sources/*.h) $(YAML_LIB) Resources/Info.plist $(ICONS) Makefile
+$(BIN): $(SOURCES) $(wildcard Sources/*.h) $(YAML_LIB) Resources/Info.plist $(ICONS) $(PRESETS) Makefile
 	mkdir -p $(APP)/Contents/MacOS $(APP)/Contents/Resources
 	xcrun clang $(CFLAGS) -IVendor/libyaml/include $(foreach a,$(ARCHS),-arch $(a)) $(SOURCES) $(YAML_LIB) $(FRAMEWORKS) -o $@
 	cp Resources/Info.plist $(APP)/Contents/Info.plist
 	cp $(ICONS) $(APP)/Contents/Resources/
+	rm -rf $(APP)/Contents/Resources/presets && cp -R presets $(APP)/Contents/Resources/
 	codesign --force --sign "$(SIGNING_IDENTITY)" --identifier local.vscreen $(APP)
 	ln -sf VScreen.app/Contents/MacOS/vscreen build/vscreen
 

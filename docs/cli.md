@@ -24,7 +24,7 @@ vscreen quit                          # Close desktops and stop the resident app
 
 Settings may be combined on `--new NAME` or `NAME|ID`. Existing desktops can be targeted by their name or current macOS display ID; only VScreen-owned displays can be updated or closed. **`--new NAME [settings]` creates the desktop if missing, or applies the supplied settings to the existing desktop without replacing its display ID.** Unspecified settings are preserved on existing desktops; a bare `--new NAME` is a no-op when it already exists. You can repeat the same create-and-configure commands to restore a layout.
 
-Names start with a letter or underscore, followed by letters, digits, `_`, `.`, or `-`, up to 64 characters. Whitespace is excluded so plain `--list` output works with shell substitution. `screens`, `layout`, `hooks`, `login`, `close`, and `quit` are reserved subcommands and cannot be used as names.
+Names start with a letter or underscore, followed by letters, digits, `_`, `.`, or `-`, up to 64 characters. Whitespace is excluded so plain `--list` output works with shell substitution. `screens`, `layout`, `hooks`, `generate`, `login`, `close`, and `quit` are reserved subcommands and cannot be used as names.
 
 ## Settings
 
@@ -62,14 +62,15 @@ Successful mutations are silent and return 0. Invalid syntax returns 2; runtime 
 vscreen layout xreal-uw-dual          # Run ~/.vscreen/layout/xreal-uw-dual (or .sh)
 vscreen layout NAME ARGS...           # Extra arguments go to the script
 vscreen layout                        # Available layout names (alias: layout --list)
-vscreen --generate-example            # Write the XREAL dual example as xreal-uw-dual.sh
+vscreen generate xreal-uw             # Write the XREAL preset's hook and layouts
+vscreen generate                      # Available presets (alias: generate --list)
 ```
 
 A layout is any executable script in `~/.vscreen/layout` (override with `VSCREEN_LAYOUT_DIR`). `layout` and `--layout` are equivalent. The client runs the script in place of itself without starting the app, so its output and exit code are the command's own. `VSCREEN_BIN` is set to the running `vscreen` binary unless it is already set, so scripts that use it work from launchers without `~/.local/bin` on PATH. A missing or non-executable layout returns 1.
 
-To run layouts automatically at login and whenever a display connects or changes mode, see [Auto-connect](auto-connect.md) (`vscreen login`, `vscreen hooks`).
+To run layouts automatically at login and whenever a display connects or changes mode, use a hook; see [Auto-connect](auto-connect.md) (`vscreen login`, `vscreen hooks`).
 
-`--generate-example` writes the [XREAL dual layout](xreal-layouts.md) into the layout directory and makes it executable. The script is built into the binary, so no source checkout is needed. Rerunning it is a no-op; if the file was edited, the command returns 1 and leaves it unchanged.
+`generate PRESET` copies a preset's layouts into the layout directory and its hooks into `~/.vscreen/hooks`, makes them executable, and creates the config if it's missing. It doesn't enable the hooks; it prints the `vscreen hooks --enable` command instead. The presets ship inside `VScreen.app`, so no source checkout is needed. Rerunning is a no-op. If any target file was edited, it lists the files, returns 1, and writes nothing. The only preset so far is `xreal-uw` (see [XREAL layouts](xreal-layouts.md)).
 
 ## Appearance
 

@@ -1,6 +1,6 @@
 # Auto-connect
 
-VScreen can start at login and run your [layout scripts](cli.md#layouts) whenever a display is connected, disconnected, or changes mode. It doesn't track any display state itself. Each script checks the current displays and decides whether to act, so a hook runs often and usually does nothing.
+VScreen can start at login and run hook scripts, which usually apply a [layout](cli.md#layouts), whenever a display is connected, disconnected, or changes mode. It doesn't track any display state itself. Each script checks the current displays and decides whether to act, so a hook runs often and usually does nothing.
 
 ## Setup
 
@@ -12,15 +12,25 @@ vscreen login --disable
 
 If the status is `requires-approval`, VScreen opens **System Settings → General → Login Items** so you can allow it. Register the installed `/Applications/VScreen.app`, not a build copy: the Login Item points at the bundle that registered it.
 
-Then list the hooks in `~/.vscreen/config.yaml` (override the path with `VSCREEN_CONFIG`):
+## Hooks and the config
+
+A hook is an executable script in `~/.vscreen/hooks` (`NAME` or `NAME.sh`). Hooks are kept separate from layouts, so they don't show up in `vscreen layout --list`. Only the hooks listed under `onDisplayChange` in `~/.vscreen/config.yaml` run (override the config path with `VSCREEN_CONFIG`; `hooks/` always sits next to it). The app creates the config, `hooks/`, and `layout/` on startup if they're missing, and never overwrites an existing config.
+
+```sh
+vscreen hooks --list            # Every hook script: enabled, disabled, or missing (listed but no script)
+vscreen hooks --enable NAME     # Add NAME to onDisplayChange; the script must exist
+vscreen hooks --disable NAME    # Remove it; the script stays in hooks/
+```
+
+`--enable` and `--disable` edit the config in place and keep your comments. If the list is in a form they can't safely edit, such as a non-empty `[a, b]` flow list, they change nothing and ask you to edit the file by hand. You can always edit it directly:
 
 ```yaml
 onDisplayChange:
-  - xreal-auto
-  - [other-layout, arg1]
+  - xreal-uw
+  - [other-hook, arg1]
 ```
 
-Each entry is a layout name, resolved like `vscreen layout NAME`, or a list of `[name, args...]`. Values are always read as strings, so `- 1` is a layout named `1`. Hooks run one at a time, in order. A failing hook doesn't stop the rest. The file is reread on every run, so edits apply without restarting.
+Each entry is a hook name or a list of `[name, args...]`. Values are always read as strings, so `- 1` is a hook named `1`. An empty `onDisplayChange:` means no hooks. Hooks run one at a time, in order. A failing hook doesn't stop the rest. The file is reread on every run, so edits apply without restarting.
 
 ## When hooks run
 
@@ -36,7 +46,7 @@ Hooks start in your home directory, with `VSCREEN_BIN` set to the app's `vscreen
 ## Testing a hook
 
 ```sh
-vscreen hooks          # Configured hooks, one per line; exits 1 if the config is invalid
+vscreen hooks          # Enabled hooks, one per line; exits 1 if the config is invalid
 vscreen hooks --run    # Run them now in this terminal (VSCREEN_EVENT=manual); exits 1 if any fail
 ```
 
@@ -44,15 +54,13 @@ vscreen hooks --run    # Run them now in this terminal (VSCREEN_EVENT=manual); e
 
 ## XREAL example
 
-XREAL glasses connect in 16:9 mode. This hook applies the [dual layout](xreal-layouts.md) only once they're switched to 32:9 ultrawide. Save it as `~/.vscreen/layout/xreal-auto.sh`, make it executable, run `vscreen --generate-example` for `xreal-uw-dual`, and add `xreal-auto` to `onDisplayChange`:
+XREAL glasses connect in 16:9 mode. The `xreal-uw` preset installs a hook that applies the [dual layout](xreal-layouts.md) once they're switched to 32:9 ultrawide, and closes VScreen's desktops otherwise:
 
 ```sh
-#!/bin/sh
-set -eu
-vs=${VSCREEN_BIN:-vscreen}
-xr=$("$vs" screens --find 'XREAL*' 2>/dev/null) || exit 0   # Not connected: nothing to do.
-[ "$("$vs" screens "$xr" --aspect)" = 32:9 ] || exit 0        # Not ultrawide yet.
-exec "$vs" layout xreal-uw-dual
+vscreen generate xreal-uw         # hooks/xreal-uw.sh, layout/xreal-uw-dual.sh, layout/xreal-uw-triple.sh
+vscreen hooks --enable xreal-uw
 ```
 
-The layout is idempotent: it reuses `UWLeft`/`UWRight`, so repeated runs just reapply the same arrangement. When the glasses disconnect, the previews hide themselves and this hook exits without changes. When they're reconnected in ultrawide mode, the layout places the previews and shows them again.
+`generate` never overwrites a file you've edited. If any target differs from the preset, it lists those files and writes nothing; remove them to regenerate. Edit the hook in `~/.vscreen/hooks/xreal-uw.sh`, e.g. to apply `xreal-uw-triple` instead.
+
+The layout is idempotent: it reuses `UWLeft`/`UWRight`, so repeated runs just reapply the same arrangement. When the glasses are reconnected in ultrawide mode, the layout places the previews and shows them again.

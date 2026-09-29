@@ -195,25 +195,25 @@ class CLITests(unittest.TestCase):
 
     def test_hooks_run_in_client_without_resident_app(self):
         root = pathlib.Path(self.directory.name)
-        layouts, config, log = root / "layouts", root / "config.yaml", root / "hook-log"
-        self.env.update(VSCREEN_LAYOUT_DIR=str(layouts), VSCREEN_CONFIG=str(config))
+        hooks, config, log = root / "hooks", root / "config.yaml", root / "hook-log"
+        self.env.update(VSCREEN_LAYOUT_DIR=str(root / "layouts"), VSCREEN_CONFIG=str(config))
         self.env.pop("VSCREEN_BIN", None)
         self.assertEqual(self.run_cli("hooks").returncode, 0)  # A missing config means no hooks.
         self.assertEqual((self.run_cli("hooks", "--run").returncode, self.run_cli("hooks", "--run").stdout), (0, ""))
 
-        layouts.mkdir()
-        (layouts / "record.sh").write_text(
+        hooks.mkdir()
+        (hooks / "record.sh").write_text(
             f'#!/bin/sh\nprintf "%s|%s|%s\\n" "$VSCREEN_EVENT" "$VSCREEN_BIN" "$*" >> "{log}"\n')
-        (layouts / "broken").write_text("#!/bin/sh\nexit 4\n")
+        (hooks / "broken").write_text("#!/bin/sh\nexit 4\n")
         for name in ("record.sh", "broken"):
-            (layouts / name).chmod(0o755)
+            (hooks / name).chmod(0o755)
         config.write_text('onDisplayChange:  # comment\n  - [record, "two words"]\n  - broken\n  - - missing\n  - record\n')
         self.assertEqual(self.run_cli("hooks").stdout, "record two words\nbroken\nmissing\nrecord\n")
 
         result = self.run_cli("hooks", "--run")
         self.assertEqual(result.returncode, 1)
         self.assertIn("broken exited with status 4", result.stderr)
-        self.assertIn("No layout missing", result.stderr)
+        self.assertIn("No hook missing", result.stderr)
         lines = [line.split("|") for line in log.read_text().splitlines()]
         self.assertEqual([(event, args) for event, _, args in lines], [("manual", "two words"), ("manual", "")])
         self.assertEqual(os.path.realpath(lines[0][1]), os.path.realpath(BIN))
@@ -231,6 +231,52 @@ class CLITests(unittest.TestCase):
                 config.write_text(text)
                 self.assertEqual((self.run_cli("hooks").returncode, self.run_cli("hooks").stdout), (0, ""))
         self.assertFalse((root / "control.sock").exists())
+
+    def test_hooks_enable_and_disable_edit_config(self):
+        root = pathlib.Path(self.directory.name)
+        hooks, config = root / "vs" / "hooks", root / "vs" / "config.yaml"
+        self.env.update(VSCREEN_LAYOUT_DIR=str(root / "vs" / "layout"), VSCREEN_CONFIG=str(config))
+        failed = self.run_cli("hooks", "--enable", "record")
+        self.assertEqual(failed.returncode, 1)
+        self.assertIn("No hook record", failed.stderr)
+        self.assertFalse(config.exists())
+
+        hooks.mkdir(parents=True)
+        for name in ("record.sh", "other"):
+            (hooks / name).write_text("#!/bin/sh\n")
+            (hooks / name).chmod(0o755)
+        self.assertEqual(self.run_cli("hooks", "--enable", "record").returncode, 0)  # Creates the starter config.
+        self.assertTrue(config.read_text().startswith("# VScreen config."))
+        self.assertTrue((root / "vs" / "layout").is_dir())
+        self.assertEqual(self.run_cli("hooks").stdout, "record\n")
+
+        config.write_text("# keep\nonDisplayChange:  # hooks\n  - [other, arg]  # note\n  # - old\nlater: 1\n")
+        self.assertEqual(self.run_cli("hooks", "--list").stdout, "other\tenabled\nrecord\tdisabled\n")
+        for _ in range(2):  # Enabling twice is a no-op.
+            self.assertEqual(self.run_cli("hooks", "--enable", "record").returncode, 0)
+        self.assertEqual(config.read_text(),
+                         "# keep\nonDisplayChange:  # hooks\n  - [other, arg]  # note\n  - record\n  # - old\nlater: 1\n")
+        self.assertEqual(self.run_cli("hooks").stdout, "other arg\nrecord\n")
+        for _ in range(2):
+            self.assertEqual(self.run_cli("hooks", "--disable", "other").returncode, 0)
+        self.assertEqual(config.read_text(), "# keep\nonDisplayChange:  # hooks\n  - record\n  # - old\nlater: 1\n")
+        (hooks / "record.sh").unlink()
+        self.assertEqual(self.run_cli("hooks", "--list").stdout, "other\tdisabled\nrecord\tmissing\n")
+
+        config.write_text("onDisplayChange: []\n")
+        self.assertEqual(self.run_cli("hooks", "--enable", "other").returncode, 0)
+        self.assertEqual(config.read_text(), "onDisplayChange:\n  - other\n")
+        for text, args in (("onDisplayChange: [other]\n", ("--disable", "other")),
+                           ("onDisplayChange:\n  - - other\n", ("--disable", "other")),
+                           ("onDisplayChange: [record]\n", ("--enable", "other"))):
+            with self.subTest(config=text, args=args):
+                config.write_text(text)
+                failed = self.run_cli("hooks", *args)
+                self.assertEqual(failed.returncode, 1)
+                self.assertIn("by hand", failed.stderr)
+                self.assertEqual(config.read_text(), text)
+        for args in (("--enable",), ("--enable", "../x"), ("--disable", "a", "b")):
+            self.assertEqual(self.run_cli("hooks", *args).returncode, 2)
 
 
 if __name__ == "__main__":

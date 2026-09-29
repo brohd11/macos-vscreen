@@ -1,18 +1,22 @@
 # VScreen
 
-Named macOS virtual displays with floating live previews. Arrange the displays and move across their shared screen edges normally. Previews do not capture, confine, warp, or forward mouse/keyboard input. Their default window level is above the menu bar and Dock.
+Create virtual displays in macOS with live previews in windows. They are seen as actual displays, so you can arrange them in System Settings > Displays > Arrange. You can move the previews with mouse or via CLI. The preview windows themselves don't forward mouse movement currently.
+
+The CLI has commands to read current screen sizes and size previews dynamically in simple shell scripts. There is a hook on display changed that can be used to re-organize or close displays as needed.
+
+This app was made because I needed to split my Xreal glasses ultrawide desktop into multiple monitors. The glasses are a bit quirky with ultrawide mode and switching between them. see the XREAL Layouts and Auto-connect sections of documentation for examples of using a hook script and layouts to swap between display layouts automatically.
 
 ## Install
 
-Requires macOS 14+. No third-party runtime dependencies.
+Requires macOS 14+.
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/brohd11/macos-vscreen/main/install.sh | sh
 ```
 
-Installs the latest release as **`/Applications/VScreen.app`** plus a small forwarding shell script at **`~/.local/bin/vscreen`**. If that directory is on PATH, no alias or shell-profile edits are needed. Rerun the same command to update. To build from source instead (`make && make install`), see [Building](docs/building.md).
+Installs the latest release to **`/Applications/VScreen.app`** plus a forwarding shell script at **`~/.local/bin/vscreen`** for CLI use. If that directory is on PATH, no alias or shell-profile edits are needed. Rerun the same command to update. To build from source instead (`make && make install`), see [Building](docs/building.md).
 
-Grant Screen Recording:
+The app needs Screen Recording permission to function:
 
 ```sh
 vscreen --request-permissions

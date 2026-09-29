@@ -1,6 +1,6 @@
 # Auto-connect
 
-VScreen can start at login and run hook scripts, which usually apply a [layout](cli.md#layouts), whenever a display is connected, disconnected, or changes mode. It doesn't track any display state itself. Each script checks the current displays and decides whether to act, so a hook runs often and usually does nothing.
+VScreen can start at login and run hook scripts, which usually apply a [layout](cli.md#layouts), whenever a display is connected, disconnected, or changes mode. It doesn't track any display state itself. Each script checks the current displays and decides whether to act.
 
 ## Setup
 
@@ -10,11 +10,11 @@ vscreen login              # Status: enabled, disabled, or requires-approval
 vscreen login --disable
 ```
 
-If the status is `requires-approval`, VScreen opens **System Settings → General → Login Items** so you can allow it. Register the installed `/Applications/VScreen.app`, not a build copy: the Login Item points at the bundle that registered it.
+If the status is `requires-approval`, VScreen opens **System Settings → General → Login Items** so you can allow it. Register the installed `/Applications/VScreen.app`.
 
 ## Hooks and the config
 
-A hook is an executable script in `~/.vscreen/hooks` (`NAME` or `NAME.sh`). Hooks are kept separate from layouts, so they don't show up in `vscreen layout --list`. Only the hooks listed under `onDisplayChange` in `~/.vscreen/config.yaml` run (override the config path with `VSCREEN_CONFIG`; `hooks/` always sits next to it). The app creates the config, `hooks/`, and `layout/` on startup if they're missing, and never overwrites an existing config.
+A hook is an executable script in `~/.vscreen/hooks` (`NAME` or `NAME.sh`). Only the hooks listed under `onDisplayChange` in `~/.vscreen/config.yaml` run (override the config path with `VSCREEN_CONFIG`; `hooks/` always sits next to it). The app creates the config, `hooks/`, and `layout/` on startup if they're missing.
 
 ```sh
 vscreen hooks --list            # Every hook script: enabled, disabled, or missing (listed but no script)
@@ -35,7 +35,7 @@ Each entry is a hook name or a list of `[name, args...]`. Values are always read
 ## When hooks run
 
 - **At login.** They run once when macOS starts VScreen as a Login Item (or you open the app from Finder), so displays that were already connected get set up. `VSCREEN_EVENT=launch`.
-- **On display changes.** They run when a display that VScreen doesn't own is added, removed, enabled, disabled, or changes mode. Turning on XREAL's ultrawide mode is a mode change. `VSCREEN_EVENT=display-change`.
+- **On display changes.** They run when a display that VScreen doesn't own is added, removed, enabled, disabled, or changes mode. `VSCREEN_EVENT=display-change`.
 
 A connection arrives as a burst of changes, so hooks run 1.5 s after the last one. Changes that arrive while hooks are running trigger one more run after they finish. VScreen ignores its own virtual displays and displays that only moved, so a hook that creates or arranges displays doesn't retrigger itself.
 
@@ -54,13 +54,13 @@ vscreen hooks --run    # Run them now in this terminal (VSCREEN_EVENT=manual); e
 
 ## XREAL example
 
-XREAL glasses connect in 16:9 mode. The `xreal-uw` preset installs a hook that applies [`xreal-uw-dual-32`](xreal-layouts.md) in 32:9 mode and `xreal-uw-dual-21` in 21:9 mode (which `--aspect` reports as `64:27`), and closes VScreen's desktops otherwise:
+XREAL glasses connect in 16:9 mode. The `xreal-uw` preset installs a hook that applies [`xreal-uw-dual-32`](xreal-layouts.md) in 32:9 mode and `xreal-uw-dual-21` in 21:9 mode (which `--aspect` reports as `64:27`), and closes VScreen's desktops otherwise. The displays are remembered by macOS, so swapping modes will re-place content back to these screens on change.
 
 ```sh
-vscreen generate xreal-uw         # hooks/xreal-uw.sh + layout/xreal-uw-{dual-32,triple-32,dual-21}.sh
+vscreen generate xreal-uw
 vscreen hooks --enable xreal-uw
 ```
 
-`generate` never overwrites a file you've edited. If any target differs from the preset, it lists those files and writes nothing; remove them to regenerate. Edit the hook in `~/.vscreen/hooks/xreal-uw.sh`, e.g. to apply `xreal-uw-triple-32` in 32:9 mode instead.
+`generate` will generate the hook file and a couple of layouts. It won't overwrite a file you've edited, if any target differs from the preset, it lists those files and writes nothing; remove them to regenerate. Edit the hook in `~/.vscreen/hooks/xreal-uw.sh`, e.g. to apply `xreal-uw-triple-32` in 32:9 mode instead.
 
-The layout is idempotent: it reuses `Xreal-Virtual-Left`/`Xreal-Virtual-Right`, so repeated runs just reapply the same arrangement. When the glasses are reconnected in ultrawide mode, the layout places the previews and shows them again.
+Everytime the display changes, the hook checks for a display name starting with "XREAL", and if it find's it, check's the aspect ratio and applies the desired layout.

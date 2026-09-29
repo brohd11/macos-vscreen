@@ -167,6 +167,63 @@ else: sys.exit(9)
                         self.assertIn('rerun', result.stderr.lower())
 
 
+class HookTests(unittest.TestCase):
+    def invoke(self, size=None, best=None):
+        """Run the preset hook against a fake vscreen; size None means no XREAL is connected."""
+        with tempfile.TemporaryDirectory(prefix='vs-hook-', dir='/tmp') as directory:
+            root = pathlib.Path(directory)
+            fake = root / 'vscreen'
+            fake.write_text('#!' + sys.executable + '''
+import json, math, os, pathlib, sys
+args = sys.argv[1:]
+with (pathlib.Path(os.environ['HOOK_FIXTURE']) / 'calls').open('a') as log:
+    log.write(json.dumps(args) + '\\n')
+size = os.environ.get('HOOK_SIZE')
+if args == ['screens', '--find', 'XREAL*']:
+    if not size: sys.exit(1)
+    print('2')
+elif args == ['screens', '2', '--size']: print(size)
+elif args == ['screens', '2', '--aspect']:
+    w, h = map(int, size.split('x')); g = math.gcd(w, h); print(f'{w // g}:{h // g}')
+elif args == ['screens', '2', '--set-mode', 'max']: print(os.environ['HOOK_BEST'])
+elif args == ['close'] or args[0] == 'layout': pass
+else: sys.exit(9)
+''')
+            fake.chmod(0o755)
+            env = dict(os.environ, PATH=directory, HOOK_FIXTURE=directory)
+            env.pop('VSCREEN_BIN', None)
+            if size: env.update(HOOK_SIZE=size, HOOK_BEST=best or size)
+            result = subprocess.run([str(PRESET / 'hooks' / 'xreal-uw.sh')], env=env,
+                                    capture_output=True, text=True, timeout=10)
+            calls = [json.loads(line) for line in (root / 'calls').read_text().splitlines()]
+            return result, calls
+
+    def test_missing_xreal_closes_without_queries(self):
+        result, calls = self.invoke()
+        self.assertEqual((result.returncode, result.stderr), (0, ''))
+        self.assertEqual(calls, [['screens', '--find', 'XREAL*'], ['close']])
+
+    def test_other_modes_close_without_changing_mode(self):
+        result, calls = self.invoke('1920x1080')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(calls[-1], ['close'])
+        self.assertFalse(any('--set-mode' in c for c in calls))
+
+    def test_full_resolution_applies_layout(self):
+        for size, layout in (('3840x1080', 'xreal-uw-dual-32'), ('2560x1080', 'xreal-uw-dual-21')):
+            with self.subTest(size=size):
+                result, calls = self.invoke(size)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(calls[-2:], [['screens', '2', '--set-mode', 'max'], ['layout', layout]])
+
+    def test_low_resolution_is_restored_before_layout(self):
+        result, calls = self.invoke('1920x540', best='3840x1080')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('3840x1080', result.stdout)
+        self.assertEqual(calls[-1], ['screens', '2', '--set-mode', 'max'])
+        self.assertFalse(any(c[0] == 'layout' for c in calls))
+
+
 class GenerateTests(unittest.TestCase):
     def test_writes_bundled_preset_without_overwriting_edits(self):
         with tempfile.TemporaryDirectory(prefix='vs-gen-', dir='/tmp') as directory:

@@ -54,7 +54,7 @@ vscreen hooks --run    # Run them now in this terminal (VSCREEN_EVENT=manual); e
 
 ## XREAL example
 
-XREAL glasses connect in 16:9 mode. The `xreal-uw` preset installs a hook that applies [`xreal-uw-dual-32`](xreal-layouts.md) in 32:9 mode and `xreal-uw-dual-21` in 21:9 mode (which `--aspect` reports as `64:27`), and closes VScreen's desktops otherwise. The displays are remembered by macOS, so swapping modes will re-place content back to these screens on change.
+XREAL glasses connect in 16:9 mode. The `xreal-uw` preset installs a hook that applies [`xreal-uw-dual-32`](xreal-layouts.md) in 32:9 mode and `xreal-uw-dual-21` in 21:9 mode (which `--aspect` reports as `64:27`), and closes VScreen's desktops otherwise. Switching between 21:9 and 32:9 drops XREAL to its lowest resolution, e.g. 1920×540, so the hook first runs `--set-mode max`. If that changes the mode, the hook exits, and the resulting display change runs it again at full resolution. The displays are remembered by macOS, so swapping modes will re-place content back to these screens on change.
 
 ```sh
 vscreen generate xreal-uw

@@ -53,7 +53,10 @@ class CLITests(unittest.TestCase):
                  ("UWLeft", "--main", "--main"), ("UWLeft", "--main", "extra"),
                  ("layout", "../escape"), ("layout", ""), ("--layout", "a/b"),
                  ("layout", "--list", "extra"), ("--new", "layout"),
-                 ("screens", "1", "--aspect", "extra"), ("login", "--bogus"), ("login", "--enable", "extra"),
+                 ("screens", "1", "--aspect", "extra"),
+                 ("screens", "1", "--modes", "extra"), ("screens", "1", "--set-mode"),
+                 ("screens", "1", "--set-mode", "12x"), ("screens", "1", "--set-mode", "maxx"),
+                 ("screens", "1", "--set-mode", "0x1080"), ("screens", "1", "--set-mode", "max", "extra"), ("login", "--bogus"), ("login", "--enable", "extra"),
                  ("hooks", "--bogus"), ("hooks", "--run", "extra"), ("--new", "login"), ("--new", "hooks")]
         for args in cases:
             with self.subTest(args=args):
@@ -138,6 +141,14 @@ class CLITests(unittest.TestCase):
                 query = self.run_cli("screens", display_id, "--" + key)
                 expected = display[key] if key in ("name", "aspect") else "x".join(map(str, display[key]))
                 self.assertEqual((query.returncode, query.stdout), (0, expected + "\n"), query.stderr)
+            modes = self.run_cli("screens", display_id, "--modes")
+            self.assertEqual(modes.returncode, 0, modes.stderr)
+            self.assertRegex(modes.stdout, r"^(\d+x\d+\n)+$")
+            # Setting the current size is a no-op, so this never changes a real display.
+            current = self.run_cli("screens", display_id, "--size").stdout.strip()
+            if current in modes.stdout.split():
+                same = self.run_cli("screens", display_id, "--set-mode", current)
+                self.assertEqual((same.returncode, same.stdout), (0, current + "\n"), same.stderr)
         if displays:
             self.assertEqual(self.run_cli("screens", "--find", "*").stdout, f"{ordered[0]['id']}\n")
             main = next(d for d in displays if d["main"])

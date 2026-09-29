@@ -29,7 +29,7 @@ All layouts use the same display names, so switching between them reuses and res
 
 `--aspect` prints the ratio in lowest terms, so XREAL's 21:9 mode (2560×1080) reports `64:27`, not `21:9`. The preset hook checks for `32:9` and `64:27`.
 
-Every layout centers the virtual row directly above the main display in Arrange, then rereads XREAL's origin to position the previews. They use logical desktop dimensions from `screens ID --size`, not Retina backing pixels, and never introduce a HiDPI mode. Rerun after moving, resizing, or reconnecting XREAL. Physical displays are never rearranged, except for the shift described in [XREAL as the only display](#xreal-as-the-only-display).
+Every layout centers the virtual row directly above the main display in Arrange, then rereads XREAL's origin to position the previews. They use logical desktop dimensions from `screens ID --size`, not Retina backing pixels, and never introduce a HiDPI mode. Rerun after moving, resizing, or reconnecting XREAL. The preset hook restores XREAL's full resolution before it applies a layout, because switching between 21:9 and 32:9 resets XREAL to its lowest mode. Physical displays are never rearranged, except for the shift described in [XREAL as the only display](#xreal-as-the-only-display).
 
 If XREAL is missing, or a layout would fall outside the supported resolution limits (480–7680 wide, 480–4320 high per virtual), the script stops before changing anything. If XREAL disconnects or changes size during setup, the previews stay hidden and the script asks you to rerun.
 

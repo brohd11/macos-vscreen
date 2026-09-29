@@ -16,6 +16,8 @@ NSString *VSUsage(void) {
       "  vscreen screens ID --origin      Display origin as XxY\n"
       "  vscreen screens ID --size        Logical display size as WxH\n"
       "  vscreen screens ID --aspect      Logical aspect ratio as reduced W:H (e.g. 32:9)\n"
+      "  vscreen screens ID --modes       Available logical modes as WxH, largest first\n"
+      "  vscreen screens ID --set-mode WxH|max  Switch a display's mode; max is the largest at its aspect\n"
       "  vscreen layout NAME [ARGS...]    Run layout script NAME[.sh] from ~/.vscreen/layout (alias: --layout)\n"
       "  vscreen layout --list            Available layout names\n"
       "  vscreen hooks                    Enabled hooks (onDisplayChange in ~/.vscreen/config.yaml)\n"
@@ -82,8 +84,15 @@ NSDictionary *VSParseCommand(NSArray<NSString *> *args, NSString **error) {
         NSInteger display;
         if (VSNumber(option, 1, UINT32_MAX, &display)) {
             if (args.count == 2) return @{@"action": @"screens", @"query": @"detail", @"id": @(display)};
-            if (args.count == 3 && [@[@"--name", @"--origin", @"--size", @"--aspect"] containsObject:args[2]])
+            if (args.count == 3 && [@[@"--name", @"--origin", @"--size", @"--aspect", @"--modes"] containsObject:args[2]])
                 return @{@"action": @"screens", @"query": [args[2] substringFromIndex:2], @"id": @(display)};
+            if (args.count == 4 && [args[2] isEqual:@"--set-mode"]) {
+                if ([args[3] isEqual:@"max"]) return @{@"action": @"screens", @"query": @"set-mode", @"id": @(display), @"mode": @"max"};
+                NSArray *parts = [args[3] componentsSeparatedByString:@"x"];
+                NSInteger width, height;
+                if (parts.count == 2 && VSNumber(parts[0], 1, 100000, &width) && VSNumber(parts[1], 1, 100000, &height))
+                    return @{@"action": @"screens", @"query": @"set-mode", @"id": @(display), @"mode": @[@(width), @(height)]};
+            }
         }
         if (error) *error = @"Invalid screens query. Run vscreen --help.";
         return nil;

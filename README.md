@@ -22,7 +22,7 @@ The app needs Screen Recording permission to function:
 vscreen --request-permissions
 ```
 
-Enable **VScreen** under **System Settings → Privacy & Security → Screen & System Audio Recording**, then run `vscreen quit` before creating a desktop. Rebuilding can invalidate the grant; see [Permissions](docs/permissions.md).
+Enable **VScreen** under **System Settings → Privacy & Security → Screen & System Audio Recording**.
 
 ## Quick start
 

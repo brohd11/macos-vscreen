@@ -63,15 +63,20 @@ with tempfile.TemporaryDirectory(prefix="vs-integration-", dir="/tmp") as direct
             left = json.loads(run("UWLeft", env=env).stdout)
             assert left["resolution"] == [800, 600]
             assert left["borderless"] is True
-            assert left["borderColor"] == "none" and left["shadow"] is False
+            assert left["borderColor"] == "none" and left["shadow"] is False and left["hiPerf"] is False
             assert left["windowLevel"] > 1000
             run("--new", "UWLeft", env=env)
             assert json.loads(run("UWLeft", env=env).stdout) == left
             run("--new", "UWRight", "--resolution", "480x1080", "--size", "320x240",
-                "--border-color", "#00Aa88", "--shadow", env=env)
+                "--border-color", "#00Aa88", "--shadow", "--hi-perf", env=env)
             right_info = json.loads(run("UWRight", env=env).stdout)
             assert right_info["resolution"] == [480, 1080], right_info
             assert right_info["borderColor"] == "#00aa88" and right_info["shadow"] is True
+            assert right_info["hiPerf"] is True
+            run("UWRight", "--titled", env=env)
+            assert json.loads(run("UWRight", env=env).stdout)["hiPerf"] is True, "Omitted hi-perf changed"
+            run("UWRight", "--borderless", "--no-hi-perf", env=env)
+            assert json.loads(run("UWRight", env=env).stdout) == dict(right_info, hiPerf=False)
             right_id = right_info["id"]
             assert run("--list", env=env).stdout == "UWLeft\nUWRight\n"
             configure_left = ("--new", "UWLeft", "--resolution", "480x1080", "--size", "400x300",

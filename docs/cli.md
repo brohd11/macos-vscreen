@@ -38,6 +38,7 @@ Names start with a letter or underscore, followed by letters, digits, `_`, `.`, 
 | `--hide` / `--show` | Hide/show the preview while keeping its display connected. A preview whose screen disconnects hides itself in place; `--show` restores it |
 | `--border-color '#RRGGBB'` / `--border-color none` | Optional one-pixel preview edge; default none |
 | `--shadow` / `--no-shadow` | Native window shadow; default off |
+| `--hi-perf` / `--no-hi-perf` | Smoother AVFoundation preview rendering; default off. Costs roughly 18% extra WindowServer CPU per preview, even when idle |
 
 Defaults: **1920×1080 at 60 Hz**, **960×540 preview**, borderless, no border or shadow, maximum window priority (above the menu bar and Dock). New displays start to the right of existing displays unless `--origin` is supplied. Resolution updates keep the same macOS display ID. Window resizing does not change display resolution.
 
@@ -74,6 +75,10 @@ vscreen UWLeft --border-color '#3388ff'  # Quote the hex color
 vscreen UWLeft --border-color none
 vscreen UWLeft --shadow
 vscreen UWLeft --no-shadow
+vscreen UWLeft --hi-perf     # Smoother motion, higher constant WindowServer load
+vscreen UWLeft --no-hi-perf
 ```
 
-The colored edge is drawn inside the preview without changing its content size or position. Enabling the native shadow can also restore macOS's thin outline; its color is controlled by macOS. Border color and shadow settings are independent and survive resizing or title-bar toggles. JSON desktop details report `borderColor` and `shadow`.
+The colored edge is drawn inside the preview without changing its content size or position. Enabling the native shadow can also restore macOS's thin outline; its color is controlled by macOS. Border color and shadow settings are independent and survive resizing or title-bar toggles. JSON desktop details report `borderColor`, `shadow`, and `hiPerf`.
+
+By default a preview draws each captured frame on a plain layer, which costs WindowServer almost nothing while the desktop is idle. `--hi-perf` switches that preview to AVFoundation's video layer. Motion paces more smoothly, but WindowServer keeps compositing it every refresh even when nothing changes. Enable it per preview where smoothness matters.

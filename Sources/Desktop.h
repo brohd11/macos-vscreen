@@ -11,6 +11,7 @@
 @property(nonatomic, readonly) BOOL receivedFrame;
 @property(nonatomic, copy, readonly) NSString *captureError;
 @property(nonatomic, copy) NSString *borderColor;
+@property(nonatomic) BOOL hiPerf;
 - (instancetype)initWithDisplay:(VSDisplay *)display name:(NSString *)name frame:(NSRect)frame
                      borderless:(BOOL)borderless level:(NSInteger)level;
 - (void)startCaptureWithFPS:(NSUInteger)fps completion:(void (^)(NSError *error))completion;

@@ -48,7 +48,7 @@ class CLITests(unittest.TestCase):
                  ("UWLeft", "--border-color"), ("UWLeft", "--border-color", "red"),
                  ("UWLeft", "--border-color", "#123"), ("UWLeft", "--border-color", "#gg0000"),
                  ("UWLeft", "--border-color", "none", "--border-color", "#123456"),
-                 ("UWLeft", "--shadow", "--no-shadow"),
+                 ("UWLeft", "--shadow", "--no-shadow"), ("UWLeft", "--hi-perf", "--no-hi-perf"),
                  ("layout", "../escape"), ("layout", ""), ("--layout", "a/b"),
                  ("layout", "--list", "extra"), ("--new", "layout")]
         for args in cases:
@@ -110,8 +110,8 @@ class CLITests(unittest.TestCase):
                 self.assertEqual((result.returncode, result.stdout, result.stderr), (0, "", ""))
 
     def test_appearance_options_and_numeric_target(self):
-        for args in [("--new", "UWLeft", "--border-color", "#aAbBcC", "--shadow"),
-                     ("123", "--border-color", "none", "--no-shadow"), ("123",)]:
+        for args in [("--new", "UWLeft", "--border-color", "#aAbBcC", "--shadow", "--hi-perf"),
+                     ("123", "--border-color", "none", "--no-shadow", "--no-hi-perf"), ("123",)]:
             with self.subTest(args=args):
                 result = self.exchange(args, {"ok": True, "output": ""})
                 self.assertEqual((result.returncode, result.stdout, result.stderr), (0, "", ""))

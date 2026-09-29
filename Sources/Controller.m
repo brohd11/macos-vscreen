@@ -152,7 +152,7 @@ static OSStatus hotKey(EventHandlerCallRef handler, EventRef event, void *contex
         @"size": sizeArray(contentRect(desktop.window).size), @"position": pointArray(previewPosition(desktop.window)),
         @"origin": pointArray(CGDisplayBounds(display).origin), @"borderless": @((BOOL)!(desktop.window.styleMask & NSWindowStyleMaskTitled)),
         @"visible": @(desktop.window.visible), @"live": @(desktop.receivedFrame), @"windowLevel": @(desktop.window.level),
-        @"borderColor": desktop.borderColor, @"shadow": @(desktop.window.hasShadow),
+        @"borderColor": desktop.borderColor, @"shadow": @(desktop.window.hasShadow), @"hiPerf": @(desktop.hiPerf),
         @"captureError": desktop.captureError ?: NSNull.null};
 }
 - (NSString *)nameForSelector:(NSString *)selector {
@@ -276,6 +276,7 @@ static OSStatus hotKey(EventHandlerCallRef handler, EventRef event, void *contex
         borderless:changes[@"borderless"] ? [changes[@"borderless"] boolValue] : YES level:CGWindowLevelForKey(kCGMaximumWindowLevelKey)];
     if (changes[@"borderColor"]) desktop.borderColor = changes[@"borderColor"];
     if (changes[@"shadow"]) desktop.window.hasShadow = [changes[@"shadow"] boolValue];
+    if (changes[@"hiPerf"]) desktop.hiPerf = [changes[@"hiPerf"] boolValue];
     _desktops[name] = desktop;
     __weak VSController *weakSelf = self;
     desktop.onClose = ^(VSDesktop *closed) {
@@ -297,6 +298,7 @@ static OSStatus hotKey(EventHandlerCallRef handler, EventRef event, void *contex
     BOOL borderless = changes[@"borderless"] ? [changes[@"borderless"] boolValue] : [previous[@"borderless"] boolValue];
     if (borderless == ((desktop.window.styleMask & NSWindowStyleMaskTitled) != 0)) [desktop toggleTitleBar];
     if (changes[@"shadow"]) desktop.window.hasShadow = [changes[@"shadow"] boolValue];
+    if (changes[@"hiPerf"]) desktop.hiPerf = [changes[@"hiPerf"] boolValue];
     CGPoint position = arrayPoint(changes[@"position"] ?: previous[@"position"]);
     CGSize size = arraySize(changes[@"size"] ?: previous[@"size"]);
     [desktop.window setFrame:[desktop.window frameRectForContentRect:previewRect(position, size)] display:YES];

@@ -1,6 +1,6 @@
 #import "Desktop.h"
 #import <ScreenCaptureKit/ScreenCaptureKit.h>
-#import <QuartzCore/QuartzCore.h>
+#import <AVFoundation/AVFoundation.h>
 
 @implementation VSWindow
 // AppKit normally keeps titled windows below the menu bar. This is intentional
@@ -16,6 +16,8 @@
 
 @interface VSPreview : NSView
 @property(nonatomic, strong) CALayer *surface;
+@property(nonatomic, strong) AVSampleBufferDisplayLayer *video;
+@property(nonatomic) BOOL hiPerf;
 @property(nonatomic, strong) NSTextField *message;
 @property(nonatomic, strong) CALayer *outline;
 @property(nonatomic, copy) NSString *borderColor;
@@ -28,8 +30,9 @@
     self.layer.backgroundColor = NSColor.blackColor.CGColor;
     // Opaque layers let WindowServer skip blending whatever is behind a preview.
     self.layer.opaque = YES;
-    // Frames go straight onto a plain layer. An AVSampleBufferDisplayLayer, even an idle one,
-    // keeps WindowServer compositing every refresh (~18% CPU per window, measured 2026-09-28).
+    // By default frames go straight onto a plain layer. An AVSampleBufferDisplayLayer paces frames
+    // more smoothly, but even an idle one keeps WindowServer compositing every refresh (~18% CPU per
+    // window, measured 2026-09-28), so it exists only while hi-perf is on.
     _surface = [CALayer new];
     _surface.opaque = YES;
     _surface.contentsGravity = kCAGravityResizeAspect;
@@ -58,6 +61,25 @@
     [CATransaction commit];
     self.needsLayout = YES;
 }
+- (void)setHiPerf:(BOOL)hiPerf {
+    if (hiPerf == _hiPerf) return;
+    _hiPerf = hiPerf;
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+    if (hiPerf) {
+        _video = [AVSampleBufferDisplayLayer new];
+        _video.opaque = YES;
+        _video.videoGravity = AVLayerVideoGravityResizeAspect;
+        _video.frame = self.bounds;
+        [self.layer insertSublayer:_video below:_outline];
+        _surface.contents = nil;
+    } else {
+        [_video flushAndRemoveImage];
+        [_video removeFromSuperlayer];
+        _video = nil;
+    }
+    [CATransaction commit];
+}
 - (BOOL)isOpaque { return YES; }
 - (void)viewDidChangeBackingProperties {
     [super viewDidChangeBackingProperties];
@@ -68,6 +90,7 @@
     [CATransaction begin];
     [CATransaction setDisableActions:YES];
     _surface.frame = self.bounds;
+    _video.frame = self.bounds;
     _outline.frame = self.bounds;
     CGFloat scale = self.window.backingScaleFactor ?: 1;
     _outline.contentsScale = scale;
@@ -94,7 +117,7 @@
     NSUInteger _fps;
     BOOL _stopped;
     BOOL _receivedFrame;
-    id _frame;  // Holds the shown frame's surface until the next one replaces it.
+    id _frame;  // The shown sample: keeps its surface from being reused, and redraws it on a mode switch.
     NSString *_captureError;
     void (^_captureCompletion)(NSError *error);
 }
@@ -104,6 +127,12 @@
 - (NSString *)captureError { return _captureError; }
 - (NSString *)borderColor { return _preview.borderColor; }
 - (void)setBorderColor:(NSString *)borderColor { _preview.borderColor = borderColor; }
+- (BOOL)hiPerf { return _preview.hiPerf; }
+- (void)setHiPerf:(BOOL)hiPerf {
+    if (hiPerf == _preview.hiPerf) return;
+    _preview.hiPerf = hiPerf;
+    if (_frame) [self showSample:(__bridge CMSampleBufferRef)_frame];
+}
 - (instancetype)initWithDisplay:(VSDisplay *)display name:(NSString *)name frame:(NSRect)frame
                      borderless:(BOOL)borderless level:(NSInteger)level {
     if (!(self = [super init])) return nil;
@@ -140,6 +169,7 @@
 }
 - (void)clearFrame {
     _preview.surface.contents = nil;
+    [_preview.video flushAndRemoveImage];
     _frame = nil;
 }
 - (void)pauseCapture:(void (^)(void))completion {
@@ -228,20 +258,33 @@
 - (void)windowDidResize:(NSNotification *)notification { (void)notification; [self scheduleStreamUpdate]; }
 - (void)windowDidChangeBackingProperties:(NSNotification *)notification { (void)notification; [self scheduleStreamUpdate]; }
 - (void)windowDidChangeOcclusionState:(NSNotification *)notification { (void)notification; [self updateStreamConfiguration]; }
+- (BOOL)showSample:(CMSampleBufferRef)sample {
+    AVSampleBufferDisplayLayer *video = _preview.video;
+    if (video) {
+        if (video.status == AVQueuedSampleBufferRenderingStatusFailed) [video flush];
+        if (!video.readyForMoreMediaData) return NO;
+        CFArrayRef array = CMSampleBufferGetSampleAttachmentsArray(sample, true);
+        CFDictionarySetValue((CFMutableDictionaryRef)CFArrayGetValueAtIndex(array, 0),
+                             kCMSampleAttachmentKey_DisplayImmediately, kCFBooleanTrue);
+        [video enqueueSampleBuffer:sample];
+    } else {
+        CVPixelBufferRef buffer = CMSampleBufferGetImageBuffer(sample);
+        IOSurfaceRef surface = buffer ? CVPixelBufferGetIOSurface(buffer) : NULL;
+        if (!surface) return NO;
+        [CATransaction begin];
+        [CATransaction setDisableActions:YES];
+        _preview.surface.contents = (__bridge id)surface;
+        [CATransaction commit];
+    }
+    _frame = (__bridge id)sample;
+    return YES;
+}
 - (void)stream:(SCStream *)stream didOutputSampleBuffer:(CMSampleBufferRef)sample ofType:(SCStreamOutputType)type {
     if (_stopped || stream != _stream || type != SCStreamOutputTypeScreen || !CMSampleBufferIsValid(sample)) return;
     NSArray *attachments = (__bridge NSArray *)CMSampleBufferGetSampleAttachmentsArray(sample, false);
     if (attachments.count == 0 || !attachments[0][SCStreamFrameInfoStatus]
         || [attachments[0][SCStreamFrameInfoStatus] integerValue] != SCFrameStatusComplete) return;
-    CVPixelBufferRef buffer = CMSampleBufferGetImageBuffer(sample);
-    IOSurfaceRef surface = buffer ? CVPixelBufferGetIOSurface(buffer) : NULL;
-    if (!surface) return;
-    // Keep the sample alive so ScreenCaptureKit does not reuse its surface while it is on screen.
-    _frame = (__bridge id)sample;
-    [CATransaction begin];
-    [CATransaction setDisableActions:YES];
-    _preview.surface.contents = (__bridge id)surface;
-    [CATransaction commit];
+    if (![self showSample:sample]) return;
     if (!_receivedFrame) {
         printf("%s: live preview ready\n", _window.title.UTF8String);
         fflush(stdout);

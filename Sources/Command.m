@@ -29,6 +29,7 @@ NSString *VSUsage(void) {
       "  --titled          Show title bar\n"
       "  --border-color COLOR  Preview edge: '#RRGGBB' or none (default: none)\n"
       "  --shadow / --no-shadow  Enable/disable the native window shadow (default: off)\n"
+      "  --hi-perf / --no-hi-perf  Smoother AVFoundation preview; ~18% more WindowServer CPU each (default: off)\n"
       "  --hide / --show   Hide/show preview without disconnecting the display\n"
       "\nDefaults: 1920x1080 display at 60 Hz, 960x540 preview, maximum window priority.\n"
       "Coordinates: main display top-left is 0x0; X increases right, Y down; negatives allowed.\n"
@@ -116,6 +117,8 @@ NSDictionary *VSParseCommand(NSArray<NSString *> *args, NSString **error) {
                 key = @"visible"; value = @([flag isEqual:@"--show"]);
             } else if ([flag isEqual:@"--shadow"] || [flag isEqual:@"--no-shadow"]) {
                 key = @"shadow"; value = @([flag isEqual:@"--shadow"]);
+            } else if ([flag isEqual:@"--hi-perf"] || [flag isEqual:@"--no-hi-perf"]) {
+                key = @"hiPerf"; value = @([flag isEqual:@"--hi-perf"]);
             } else if ([flag isEqual:@"--border-color"]) {
                 if (index == args.count) { problem = @"Missing value for --border-color"; break; }
                 NSString *color = [args[index++] lowercaseString];

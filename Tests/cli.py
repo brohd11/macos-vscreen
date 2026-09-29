@@ -195,7 +195,7 @@ class CLITests(unittest.TestCase):
 
     def test_hooks_run_in_client_without_resident_app(self):
         root = pathlib.Path(self.directory.name)
-        layouts, config, log = root / "layouts", root / "config.json", root / "hook-log"
+        layouts, config, log = root / "layouts", root / "config.yaml", root / "hook-log"
         self.env.update(VSCREEN_LAYOUT_DIR=str(layouts), VSCREEN_CONFIG=str(config))
         self.env.pop("VSCREEN_BIN", None)
         self.assertEqual(self.run_cli("hooks").returncode, 0)  # A missing config means no hooks.
@@ -207,7 +207,7 @@ class CLITests(unittest.TestCase):
         (layouts / "broken").write_text("#!/bin/sh\nexit 4\n")
         for name in ("record.sh", "broken"):
             (layouts / name).chmod(0o755)
-        config.write_text(json.dumps({"onDisplayChange": [["record", "two words"], "broken", "missing", "record"]}))
+        config.write_text('onDisplayChange:  # comment\n  - [record, "two words"]\n  - broken\n  - - missing\n  - record\n')
         self.assertEqual(self.run_cli("hooks").stdout, "record two words\nbroken\nmissing\nrecord\n")
 
         result = self.run_cli("hooks", "--run")
@@ -218,14 +218,18 @@ class CLITests(unittest.TestCase):
         self.assertEqual([(event, args) for event, _, args in lines], [("manual", "two words"), ("manual", "")])
         self.assertEqual(os.path.realpath(lines[0][1]), os.path.realpath(BIN))
 
-        for text in ("not json", "[]", '{"onDisplayChange": "record"}', '{"onDisplayChange": [1]}',
-                     '{"onDisplayChange": [[]]}', '{"onDisplayChange": ["../escape"]}'):
+        for text in ("[unclosed", "- record", "onDisplayChange: record", "onDisplayChange: [{a: b}]",
+                     "onDisplayChange: [[]]", "onDisplayChange: [../escape]"):
             with self.subTest(config=text):
                 config.write_text(text)
                 for args in (("hooks",), ("hooks", "--run")):
                     failed = self.run_cli(*args)
                     self.assertEqual((failed.returncode, failed.stdout), (1, ""))
                     self.assertIn("Invalid", failed.stderr)
+        for text in ("", "# nothing\n", "onDisplayChange:\n#  - record\n"):
+            with self.subTest(config=text):
+                config.write_text(text)
+                self.assertEqual((self.run_cli("hooks").returncode, self.run_cli("hooks").stdout), (0, ""))
         self.assertFalse((root / "control.sock").exists())
 
 

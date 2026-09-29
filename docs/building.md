@@ -1,6 +1,6 @@
 # Building
 
-Requires macOS 14+ and Xcode Command Line Tools to build. No third-party runtime dependencies.
+Requires macOS 14+ and Xcode Command Line Tools to build. No third-party runtime dependencies: [libyaml](https://github.com/yaml/libyaml) 0.2.5 (MIT, `Vendor/libyaml/`), used to read the hook config, is vendored and statically linked.
 
 ```sh
 make            # build/VScreen.app and the build/vscreen CLI symlink

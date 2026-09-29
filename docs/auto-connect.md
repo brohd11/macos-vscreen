@@ -12,13 +12,15 @@ vscreen login --disable
 
 If the status is `requires-approval`, VScreen opens **System Settings → General → Login Items** so you can allow it. Register the installed `/Applications/VScreen.app`, not a build copy: the Login Item points at the bundle that registered it.
 
-Then list the hooks in `~/.vscreen/config.json` (override the path with `VSCREEN_CONFIG`):
+Then list the hooks in `~/.vscreen/config.yaml` (override the path with `VSCREEN_CONFIG`):
 
-```json
-{ "onDisplayChange": ["xreal-auto", ["other-layout", "arg1"]] }
+```yaml
+onDisplayChange:
+  - xreal-auto
+  - [other-layout, arg1]
 ```
 
-Each entry is a layout name, resolved like `vscreen layout NAME`, or an array of `[name, args...]`. Hooks run one at a time, in order. A failing hook doesn't stop the rest. The file is reread on every run, so edits apply without restarting.
+Each entry is a layout name, resolved like `vscreen layout NAME`, or a list of `[name, args...]`. Values are always read as strings, so `- 1` is a layout named `1`. Hooks run one at a time, in order. A failing hook doesn't stop the rest. The file is reread on every run, so edits apply without restarting.
 
 ## When hooks run
 
@@ -42,7 +44,7 @@ vscreen hooks --run    # Run them now in this terminal (VSCREEN_EVENT=manual); e
 
 ## XREAL example
 
-XREAL glasses connect in 16:9 mode. This hook applies the [dual layout](xreal-layouts.md) only once they're switched to 32:9 ultrawide. Save it as `~/.vscreen/layout/xreal-auto.sh`, make it executable, run `vscreen --generate-example` for `xreal-uw-dual`, and add `"xreal-auto"` to `onDisplayChange`:
+XREAL glasses connect in 16:9 mode. This hook applies the [dual layout](xreal-layouts.md) only once they're switched to 32:9 ultrawide. Save it as `~/.vscreen/layout/xreal-auto.sh`, make it executable, run `vscreen --generate-example` for `xreal-uw-dual`, and add `xreal-auto` to `onDisplayChange`:
 
 ```sh
 #!/bin/sh

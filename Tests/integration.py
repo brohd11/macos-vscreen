@@ -53,8 +53,8 @@ with tempfile.TemporaryDirectory(prefix="vs-integration-", dir="/tmp") as direct
     hook_dir.mkdir()
     (hook_dir / "record.sh").write_text(f'#!/bin/sh\necho "$VSCREEN_EVENT" >> "{hook_marker}"\n')
     (hook_dir / "record.sh").chmod(0o755)
-    (pathlib.Path(directory) / "config.json").write_text('{"onDisplayChange": ["record"]}')
-    hook_env = dict(os.environ, VSCREEN_CONFIG=directory + "/config.json", VSCREEN_LAYOUT_DIR=str(hook_dir))
+    (pathlib.Path(directory) / "config.yaml").write_text("onDisplayChange: [record]\n")
+    hook_env = dict(os.environ, VSCREEN_CONFIG=directory + "/config.yaml", VSCREEN_LAYOUT_DIR=str(hook_dir))
     with log_path.open("w+") as log:
         host = subprocess.Popen([str(BIN), "--serve-test", directory], stdout=log, stderr=log, env=hook_env)
         try:

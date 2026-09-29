@@ -1,5 +1,5 @@
 #import <Foundation/Foundation.h>
-// ~/.vscreen/config.json, or VSCREEN_CONFIG. The hook log lives next to it.
+// ~/.vscreen/config.yaml, or VSCREEN_CONFIG. The hook log lives next to it.
 NSString *VSConfigPath(void);
 // Each hook is @[layoutName, args...]. A missing config means no hooks; nil means an invalid config.
 NSArray<NSArray<NSString *> *> *VSLoadHooks(NSString **error);

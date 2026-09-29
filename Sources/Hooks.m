@@ -1,24 +1,72 @@
 #import "Hooks.h"
 #import "Command.h"
 #import "Layout.h"
+#include <yaml.h>
 
 NSString *VSConfigPath(void) {
     NSString *custom = NSProcessInfo.processInfo.environment[@"VSCREEN_CONFIG"];
-    return custom.length ? custom : [NSHomeDirectory() stringByAppendingPathComponent:@".vscreen/config.json"];
+    return custom.length ? custom : [NSHomeDirectory() stringByAppendingPathComponent:@".vscreen/config.yaml"];
+}
+
+// Scalars stay strings: hook entries are layout names and arguments. A bare empty value is NSNull.
+static id yamlObject(yaml_document_t *document, yaml_node_t *node, int depth) {
+    if (!node || depth > 32) return nil;
+    if (node->type == YAML_SCALAR_NODE && node->data.scalar.style == YAML_PLAIN_SCALAR_STYLE && !node->data.scalar.length)
+        return NSNull.null;
+    if (node->type == YAML_SCALAR_NODE)
+        return [[NSString alloc] initWithBytes:node->data.scalar.value length:node->data.scalar.length
+                                      encoding:NSUTF8StringEncoding];
+    if (node->type == YAML_SEQUENCE_NODE) {
+        NSMutableArray *array = [NSMutableArray new];
+        for (yaml_node_item_t *item = node->data.sequence.items.start; item < node->data.sequence.items.top; item++) {
+            id value = yamlObject(document, yaml_document_get_node(document, *item), depth + 1);
+            if (!value) return nil;
+            [array addObject:value];
+        }
+        return array;
+    }
+    if (node->type != YAML_MAPPING_NODE) return nil;
+    NSMutableDictionary *dictionary = [NSMutableDictionary new];
+    for (yaml_node_pair_t *pair = node->data.mapping.pairs.start; pair < node->data.mapping.pairs.top; pair++) {
+        id key = yamlObject(document, yaml_document_get_node(document, pair->key), depth + 1);
+        id value = yamlObject(document, yaml_document_get_node(document, pair->value), depth + 1);
+        if (![key isKindOfClass:NSString.class] || !value) return nil;
+        dictionary[key] = value;
+    }
+    return dictionary;
+}
+
+// An empty file is an empty mapping; nil sets *problem.
+static id loadYAML(NSData *data, NSString **problem) {
+    yaml_parser_t parser;
+    yaml_document_t document;
+    if (!yaml_parser_initialize(&parser)) { *problem = @"out of memory"; return nil; }
+    yaml_parser_set_input_string(&parser, data.length ? data.bytes : (const unsigned char *)"", data.length);
+    id result = nil;
+    if (!yaml_parser_load(&parser, &document)) {
+        *problem = [NSString stringWithFormat:@"%s at line %zu, column %zu", parser.problem ?: "parse error",
+                    parser.problem_mark.line + 1, parser.problem_mark.column + 1];
+    } else {
+        yaml_node_t *root = yaml_document_get_root_node(&document);
+        result = root ? yamlObject(&document, root, 0) : @{};
+        if (!result) *problem = @"keys and values must be strings, lists, or mappings";
+        yaml_document_delete(&document);
+    }
+    yaml_parser_delete(&parser);
+    return result;
 }
 
 NSArray<NSArray<NSString *> *> *VSLoadHooks(NSString **error) {
     NSString *path = VSConfigPath();
     NSData *data = [NSData dataWithContentsOfFile:path];
     if (!data) return @[];
-    NSError *parseError = nil;
-    id config = [NSJSONSerialization JSONObjectWithData:data options:0 error:&parseError];
     NSString *problem = nil;
+    id config = loadYAML(data, &problem);
     NSMutableArray *hooks = [NSMutableArray new];
     id entries = [config isKindOfClass:NSDictionary.class] ? config[@"onDisplayChange"] : nil;
-    if (!config) problem = parseError.localizedDescription;
-    else if (![config isKindOfClass:NSDictionary.class]) problem = @"top level must be an object";
-    else if (entries && ![entries isKindOfClass:NSArray.class]) problem = @"onDisplayChange must be an array";
+    if ([entries isKindOfClass:NSNull.class]) entries = nil;
+    if (config && ![config isKindOfClass:NSDictionary.class]) problem = @"top level must be a mapping";
+    else if (entries && ![entries isKindOfClass:NSArray.class]) problem = @"onDisplayChange must be a list";
     for (id entry in problem ? @[] : entries ?: @[]) {
         NSArray *hook = [entry isKindOfClass:NSString.class] ? @[entry] : entry;
         BOOL valid = [hook isKindOfClass:NSArray.class] && hook.count > 0;

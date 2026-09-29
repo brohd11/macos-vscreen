@@ -18,7 +18,7 @@ NSString *VSUsage(void) {
       "  vscreen screens ID --aspect      Logical aspect ratio as reduced W:H (e.g. 32:9)\n"
       "  vscreen layout NAME [ARGS...]    Run layout script NAME[.sh] from ~/.vscreen/layout (alias: --layout)\n"
       "  vscreen layout --list            Available layout names\n"
-      "  vscreen hooks                    Display-change hooks from ~/.vscreen/config.json\n"
+      "  vscreen hooks                    Display-change hooks from ~/.vscreen/config.yaml\n"
       "  vscreen hooks --run              Run the hooks now, in this terminal\n"
       "  vscreen login [--enable|--disable]  Start VScreen at login and run hooks; bare shows status\n"
       "  vscreen --generate-example       Write the XREAL dual layout (xreal-uw-dual) to ~/.vscreen/layout\n"

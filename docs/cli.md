@@ -92,3 +92,14 @@ vscreen UWLeft --no-hi-perf
 The colored edge is drawn inside the preview without changing its content size or position. Enabling the native shadow can also restore macOS's thin outline; its color is controlled by macOS. Border color and shadow settings are independent and survive resizing or title-bar toggles. JSON desktop details report `borderColor`, `shadow`, and `hiPerf`.
 
 By default a preview draws each captured frame on a plain layer, which costs WindowServer almost nothing while the desktop is idle. `--hi-perf` switches that preview to AVFoundation's video layer. Motion paces more smoothly, but WindowServer keeps compositing it every refresh even when nothing changes. Enable it per preview where smoothness matters.
+
+## Drawn pointer
+
+```sh
+vscreen --draw-mouse       # Every preview draws the pointer itself; saved in config.yaml
+vscreen --no-draw-mouse    # Back to the captured pointer (default)
+```
+
+ScreenCaptureKit only sends a new frame when a display changes, and when just the pointer moves those frames arrive at about 30 fps. So by default the pointer in a preview moves at about half the rate of a native one. `--hi-perf` doesn't help, because no extra frames are sent. With `--draw-mouse`, each preview draws the pointer itself, updated on every refresh of the screen it sits on, while the pointer is on that preview's virtual display. It feels more responsive, but it only copies the pointer's position and shape. Shaking the pointer doesn't enlarge it, an arrow still shows when an app hides the pointer, and the pointer size and colour set in Accessibility may not match.
+
+The setting applies to every preview. It is saved as `drawMouse: true|false` in `~/.vscreen/config.yaml` and applied straight away when the app is running, otherwise at the next launch. Hand edits to that line take effect at the next launch or the next `--draw-mouse`/`--no-draw-mouse`.

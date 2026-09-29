@@ -24,13 +24,15 @@ static int client(NSArray<NSString *> *arguments) {
         if (output.length) puts(output.UTF8String);
         return 0;
     }
+    // The config is the saved setting; a running app is then told to reread it.
+    if ([action isEqual:@"drawMouse"] && VSSetDrawMouse([command[@"enable"] boolValue])) return 1;
     NSString *directory = VSRuntimeDirectory();
     int fd = VSConnect(directory);
     if (fd < 0) {
         if (errno != ENOENT && errno != ECONNREFUSED) {
             fprintf(stderr, "Cannot connect to VScreen: %s\n", strerror(errno)); return 1;
         }
-        if ([action isEqual:@"list"] || [action isEqual:@"close"] || [action isEqual:@"quit"]) {
+        if ([action isEqual:@"list"] || [action isEqual:@"close"] || [action isEqual:@"quit"] || [action isEqual:@"drawMouse"]) {
             if ([command[@"json"] boolValue]) puts("[]");
             return 0;
         }

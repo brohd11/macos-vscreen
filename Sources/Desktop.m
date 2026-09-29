@@ -20,6 +20,7 @@
 @property(nonatomic) BOOL hiPerf;
 @property(nonatomic, strong) NSTextField *message;
 @property(nonatomic, strong) CALayer *outline;
+@property(nonatomic, strong) CALayer *cursor;
 @property(nonatomic, copy) NSString *borderColor;
 @end
 
@@ -40,6 +41,11 @@
     _outline = [CALayer new];
     _outline.zPosition = 1;
     [self.layer addSublayer:_outline];
+    _cursor = [CALayer new];
+    _cursor.zPosition = 0.5;
+    _cursor.hidden = YES;
+    _cursor.contentsGravity = kCAGravityResize;
+    [self.layer addSublayer:_cursor];
     self.borderColor = @"none";
     _message = [NSTextField wrappingLabelWithString:@"Starting desktop…"];
     _message.textColor = NSColor.whiteColor;
@@ -117,9 +123,20 @@
     NSUInteger _fps;
     BOOL _stopped;
     BOOL _receivedFrame;
-    id _frame;  // The shown sample: keeps its surface from being reused, and redraws it on a mode switch.
     NSString *_captureError;
     void (^_captureCompletion)(NSError *error);
+    // With drawsCursor the preview draws the pointer itself at the host screen's refresh:
+    // ScreenCaptureKit sends cursor-only changes at ~30 fps. Idles at a low rate until the pointer
+    // enters this display.
+    BOOL _drawsCursor;
+    CADisplayLink *_cursorLink;
+    NSData *_cursorPixels;
+    NSUInteger _cursorTick;
+    // Frames arrive on this queue, not main, so AppKit work never delays them. Only this queue
+    // touches the ivars below and the preview's frame layers; main reaches them via dispatch_sync.
+    dispatch_queue_t _captureQueue;
+    id _frame;  // The shown sample: keeps its surface from being reused, and redraws it on a mode switch.
+    BOOL _frameShown;
 }
 - (VSDisplay *)display { return _display; }
 - (VSWindow *)window { return _window; }
@@ -128,15 +145,36 @@
 - (NSString *)borderColor { return _preview.borderColor; }
 - (void)setBorderColor:(NSString *)borderColor { _preview.borderColor = borderColor; }
 - (BOOL)hiPerf { return _preview.hiPerf; }
+- (BOOL)drawsCursor { return _drawsCursor; }
+- (void)setDrawsCursor:(BOOL)drawsCursor {
+    if (drawsCursor == _drawsCursor || _stopped) return;
+    _drawsCursor = drawsCursor;
+    if (drawsCursor) {
+        _cursorLink = [_preview displayLinkWithTarget:self selector:@selector(trackCursor:)];
+        _cursorLink.preferredFrameRateRange = CAFrameRateRangeMake(10, 10, 10);
+        _cursorLink.paused = (_window.occlusionState & NSWindowOcclusionStateVisible) == 0;
+        [_cursorLink addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];
+    } else {
+        [_cursorLink invalidate];  // It retains self.
+        _cursorLink = nil;
+        [self setCursorShown:NO];
+    }
+    [self updateStreamConfiguration];
+}
 - (void)setHiPerf:(BOOL)hiPerf {
     if (hiPerf == _preview.hiPerf) return;
-    _preview.hiPerf = hiPerf;
-    if (_frame) [self showSample:(__bridge CMSampleBufferRef)_frame];
+    // Synchronous, so main-thread layout never sees the video layer half swapped.
+    dispatch_sync(_captureQueue, ^{
+        self->_preview.hiPerf = hiPerf;
+        if (self->_frame) [self showSample:(__bridge CMSampleBufferRef)self->_frame];
+    });
 }
 - (instancetype)initWithDisplay:(VSDisplay *)display name:(NSString *)name frame:(NSRect)frame
                      borderless:(BOOL)borderless level:(NSInteger)level {
     if (!(self = [super init])) return nil;
     _display = display;
+    _captureQueue = dispatch_queue_create("local.vscreen.capture",
+        dispatch_queue_attr_make_with_qos_class(DISPATCH_QUEUE_SERIAL, QOS_CLASS_USER_INTERACTIVE, 0));
     NSWindowStyleMask style = NSWindowStyleMaskNonactivatingPanel | NSWindowStyleMaskResizable;
     if (!borderless) style |= NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskMiniaturizable;
     _window = [[VSWindow alloc] initWithContentRect:frame styleMask:style backing:NSBackingStoreBuffered defer:NO];
@@ -167,10 +205,17 @@
         if (done) done(error);
     }];
 }
+// Call after removing the stream output: the sync runs behind any frame already queued.
 - (void)clearFrame {
-    _preview.surface.contents = nil;
-    [_preview.video flushAndRemoveImage];
-    _frame = nil;
+    dispatch_sync(_captureQueue, ^{
+        [CATransaction begin];
+        [CATransaction setDisableActions:YES];
+        self->_preview.surface.contents = nil;
+        [CATransaction commit];
+        [self->_preview.video flushAndRemoveImage];
+        self->_frame = nil;
+        self->_frameShown = NO;
+    });
 }
 - (void)pauseCapture:(void (^)(void))completion {
     SCStream *old = _stream;
@@ -212,7 +257,7 @@
             self->_stream = [[SCStream alloc] initWithFilter:filter configuration:[self streamConfiguration] delegate:self];
             NSError *outputError = nil;
             if (![self->_stream addStreamOutput:self type:SCStreamOutputTypeScreen
-                            sampleHandlerQueue:dispatch_get_main_queue() error:&outputError]) {
+                            sampleHandlerQueue:self->_captureQueue error:&outputError]) {
                 completion(outputError); return;
             }
             [self->_stream startCaptureWithCompletionHandler:^(NSError *startError) {
@@ -236,10 +281,13 @@
     SCStreamConfiguration *configuration = [SCStreamConfiguration new];
     configuration.width = (size_t)MAX(2, round(displayW * scale));
     configuration.height = (size_t)MAX(2, round(displayH * scale));
-    configuration.minimumFrameInterval = seen ? CMTimeMake(1, (int32_t)MAX(_fps, 1)) : CMTimeMake(1, 1);
-    configuration.queueDepth = 3;
+    // A visible preview takes every display update; the virtual display's refresh caps the rate.
+    // An interval of exactly 1/refresh made SCK drop any frame whose vsync landed a hair early.
+    configuration.minimumFrameInterval = seen ? kCMTimeZero : CMTimeMake(1, 1);
+    // Room for the shown frame, the one WindowServer may still be compositing, and new ones.
+    configuration.queueDepth = 5;
     configuration.pixelFormat = kCVPixelFormatType_32BGRA;
-    configuration.showsCursor = YES;
+    configuration.showsCursor = !_drawsCursor;  // Otherwise trackCursor: draws it.
     configuration.capturesAudio = NO;
     configuration.scalesToFit = YES;
     return configuration;
@@ -257,7 +305,63 @@
 }
 - (void)windowDidResize:(NSNotification *)notification { (void)notification; [self scheduleStreamUpdate]; }
 - (void)windowDidChangeBackingProperties:(NSNotification *)notification { (void)notification; [self scheduleStreamUpdate]; }
-- (void)windowDidChangeOcclusionState:(NSNotification *)notification { (void)notification; [self updateStreamConfiguration]; }
+- (void)windowDidChangeOcclusionState:(NSNotification *)notification {
+    (void)notification;
+    _cursorLink.paused = (_window.occlusionState & NSWindowOcclusionStateVisible) == 0;
+    [self updateStreamConfiguration];
+}
+- (void)setCursorShown:(BOOL)shown {
+    CALayer *cursor = _preview.cursor;
+    if (cursor.hidden != shown) return;
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+    cursor.hidden = !shown;
+    [CATransaction commit];
+    _cursorLink.preferredFrameRateRange = shown ? CAFrameRateRangeDefault : CAFrameRateRangeMake(10, 10, 10);
+}
+- (void)refreshCursorImage:(CGFloat)scale {
+    NSCursor *system = NSCursor.currentSystemCursor;
+    NSImage *image = system.image;
+    NSBitmapImageRep *best = nil;
+    for (NSImageRep *rep in image.representations)
+        if ([rep isKindOfClass:NSBitmapImageRep.class] && rep.pixelsWide > best.pixelsWide) best = (NSBitmapImageRep *)rep;
+    CGImageRef pixels = best.CGImage;
+    if (!pixels) return;
+    // A fresh NSCursor comes back on every call, so compare pixels to spot a shape change.
+    NSData *data = CFBridgingRelease(CGDataProviderCopyData(CGImageGetDataProvider(pixels)));
+    CALayer *cursor = _preview.cursor;
+    CGSize size = NSMakeSize(image.size.width * scale, image.size.height * scale);
+    if ([data isEqual:_cursorPixels] && CGSizeEqualToSize(cursor.bounds.size, size)) return;
+    _cursorPixels = data;
+    NSPoint hot = system.hotSpot;
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+    cursor.contents = (__bridge id)pixels;
+    cursor.bounds = CGRectMake(0, 0, size.width, size.height);
+    cursor.anchorPoint = CGPointMake(hot.x / image.size.width, 1 - hot.y / image.size.height);
+    [CATransaction commit];
+}
+- (void)trackCursor:(CADisplayLink *)link {
+    (void)link;
+    CGEventRef event = CGEventCreate(NULL);
+    CGPoint pointer = event ? CGEventGetLocation(event) : CGPointMake(-INFINITY, -INFINITY);
+    if (event) CFRelease(event);
+    CGRect screen = CGDisplayBounds(_display.displayID);
+    if (!_receivedFrame || CGRectIsEmpty(screen) || !CGRectContainsPoint(screen, pointer)) {
+        [self setCursorShown:NO];
+        return;
+    }
+    // Map like the frame's aspect fit: centred, uniformly scaled; layers are bottom-left origin.
+    NSRect bounds = _preview.bounds;
+    CGFloat scale = MIN(bounds.size.width / screen.size.width, bounds.size.height / screen.size.height);
+    if (_preview.cursor.hidden || _cursorTick++ % 2 == 0) [self refreshCursorImage:scale];
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+    _preview.cursor.position = CGPointMake(NSMidX(bounds) + (pointer.x - CGRectGetMidX(screen)) * scale,
+                                           NSMidY(bounds) - (pointer.y - CGRectGetMidY(screen)) * scale);
+    [CATransaction commit];
+    [self setCursorShown:YES];
+}
 - (BOOL)showSample:(CMSampleBufferRef)sample {
     AVSampleBufferDisplayLayer *video = _preview.video;
     if (video) {
@@ -279,18 +383,25 @@
     _frame = (__bridge id)sample;
     return YES;
 }
+// Runs on _captureQueue. A stale stream's frames are harmless: pause/stop remove the output and then
+// clear the frame behind any that were already queued.
 - (void)stream:(SCStream *)stream didOutputSampleBuffer:(CMSampleBufferRef)sample ofType:(SCStreamOutputType)type {
-    if (_stopped || stream != _stream || type != SCStreamOutputTypeScreen || !CMSampleBufferIsValid(sample)) return;
+    if (_stopped || type != SCStreamOutputTypeScreen || !CMSampleBufferIsValid(sample)) return;
     NSArray *attachments = (__bridge NSArray *)CMSampleBufferGetSampleAttachmentsArray(sample, false);
     if (attachments.count == 0 || !attachments[0][SCStreamFrameInfoStatus]
         || [attachments[0][SCStreamFrameInfoStatus] integerValue] != SCFrameStatusComplete) return;
     if (![self showSample:sample]) return;
-    if (!_receivedFrame) {
-        printf("%s: live preview ready\n", _window.title.UTF8String);
-        fflush(stdout);
-    }
-    _receivedFrame = YES;
-    _preview.message.hidden = YES;
+    if (_frameShown) return;
+    _frameShown = YES;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (self->_stopped || stream != self->_stream) return;
+        if (!self->_receivedFrame) {
+            printf("%s: live preview ready\n", self->_window.title.UTF8String);
+            fflush(stdout);
+        }
+        self->_receivedFrame = YES;
+        self->_preview.message.hidden = YES;
+    });
 }
 - (void)stream:(SCStream *)stream didStopWithError:(NSError *)error {
     dispatch_async(dispatch_get_main_queue(), ^{
@@ -321,6 +432,8 @@
     if (_stopped) return;
     _stopped = YES;
     [NSObject cancelPreviousPerformRequestsWithTarget:self];
+    [_cursorLink invalidate];  // It retains self.
+    _cursorLink = nil;
     void (^done)(NSError *) = _captureCompletion;
     _captureCompletion = nil;
     if (done) done([NSError errorWithDomain:@"VScreen" code:4 userInfo:@{NSLocalizedDescriptionKey: @"Desktop closed during capture startup."}]);

@@ -17,6 +17,7 @@ NSString *VSHookDirectory(void) {
 static NSString *const defaultConfig = @
     "# VScreen config. Hooks are scripts in ~/.vscreen/hooks; only the ones listed here run.\n"
     "# Toggle one with: vscreen hooks --enable NAME / --disable NAME\n"
+    "# drawMouse: true draws the pointer in previews (vscreen --draw-mouse / --no-draw-mouse).\n"
     "onDisplayChange:\n";
 
 BOOL VSEnsureConfig(NSString **error) {
@@ -128,6 +129,55 @@ static NSArray<NSString *> *hookNames(NSArray<NSArray<NSString *> *> *hooks) {
 
 static BOOL matches(NSString *line, NSString *pattern) {
     return [line rangeOfString:pattern options:NSRegularExpressionSearch].location != NSNotFound;
+}
+
+static NSNumber *drawMouseFromData(NSData *data, NSString *path, NSString **error) {
+    NSString *problem = nil;
+    id config = loadYAML(data, &problem);
+    id value = [config isKindOfClass:NSDictionary.class] ? config[@"drawMouse"] : nil;
+    if (config && ![config isKindOfClass:NSDictionary.class]) problem = @"top level must be a mapping";
+    else if (!problem && value && ![value isKindOfClass:NSNull.class] && ![@[@"true", @"false"] containsObject:value])
+        problem = @"drawMouse must be true or false";
+    if (problem) {
+        if (error) *error = [NSString stringWithFormat:@"Invalid %@: %@%@", path, problem, [problem hasSuffix:@"."] ? @"" : @"."];
+        return nil;
+    }
+    return @([value isEqual:@"true"]);
+}
+
+BOOL VSLoadDrawMouse(NSString **error) {
+    NSString *path = VSConfigPath();
+    NSData *data = [NSData dataWithContentsOfFile:path];
+    return data ? [drawMouseFromData(data, path, error) boolValue] : NO;
+}
+
+int VSSetDrawMouse(BOOL enable) {
+    NSString *error = nil, *path = VSConfigPath();
+    if (!VSEnsureConfig(&error)) { fprintf(stderr, "%s\n", error.UTF8String); return 1; }
+    NSData *data = [NSData dataWithContentsOfFile:path] ?: NSData.data;
+    NSString *text = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+    // Replace the drawMouse line in place, so comments and hooks survive; append it if missing.
+    NSMutableArray<NSString *> *lines = [[text ?: @"" componentsSeparatedByString:@"\n"] mutableCopy];
+    if (lines.count && [lines.lastObject isEqual:@""]) [lines removeLastObject];
+    NSString *line = enable ? @"drawMouse: true" : @"drawMouse: false";
+    NSUInteger key = NSNotFound;
+    for (NSUInteger i = 0; i < lines.count; i++)
+        if (matches(lines[i], @"^drawMouse\\s*:")) { key = i; break; }
+    if (key == NSNotFound) [lines addObject:line];
+    else lines[key] = line;
+    NSData *output = [[[lines componentsJoinedByString:@"\n"] stringByAppendingString:@"\n"] dataUsingEncoding:NSUTF8StringEncoding];
+    // Only write when the edit parses to the intended value and leaves the hooks as they were.
+    NSArray *before = hooksFromData(data, path, NULL);
+    NSNumber *result = text ? drawMouseFromData(output, path, NULL) : nil;
+    if (!result || result.boolValue != enable || !before || ![hooksFromData(output, path, NULL) isEqual:before]) {
+        fprintf(stderr, "Cannot set drawMouse automatically; edit drawMouse in %s by hand.\n", path.UTF8String);
+        return 1;
+    }
+    NSError *failure = nil;
+    if (![output writeToFile:path options:NSDataWritingAtomic error:&failure]) {
+        fprintf(stderr, "Cannot write %s: %s\n", path.UTF8String, failure.localizedDescription.UTF8String); return 1;
+    }
+    return 0;
 }
 
 // Adds or removes NAME in onDisplayChange by editing lines, so comments and layout survive.

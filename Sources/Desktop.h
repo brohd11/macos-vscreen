@@ -12,6 +12,8 @@
 @property(nonatomic, copy, readonly) NSString *captureError;
 @property(nonatomic, copy) NSString *borderColor;
 @property(nonatomic) BOOL hiPerf;
+// Draw the pointer in the preview at its screen's refresh instead of capturing it (~30 fps).
+@property(nonatomic) BOOL drawsCursor;
 - (instancetype)initWithDisplay:(VSDisplay *)display name:(NSString *)name frame:(NSRect)frame
                      borderless:(BOOL)borderless level:(NSInteger)level;
 - (void)startCaptureWithFPS:(NSUInteger)fps completion:(void (^)(NSError *error))completion;

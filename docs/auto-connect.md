@@ -32,6 +32,8 @@ onDisplayChange:
 
 Each entry is a hook name or a list of `[name, args...]`. Values are always read as strings, so `- 1` is a hook named `1`. An empty `onDisplayChange:` means no hooks. Hooks run one at a time, in order. A failing hook doesn't stop the rest. The file is reread on every run, so edits apply without restarting.
 
+The config also holds the app-wide `drawMouse: true|false` setting, which `vscreen --draw-mouse` / `--no-draw-mouse` set (see [Drawn pointer](cli.md#drawn-pointer)).
+
 ## When hooks run
 
 - **At login.** They run once when macOS starts VScreen as a Login Item (or you open the app from Finder), so displays that were already connected get set up. `VSCREEN_EVENT=launch`.

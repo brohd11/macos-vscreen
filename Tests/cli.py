@@ -57,7 +57,8 @@ class CLITests(unittest.TestCase):
                  ("screens", "1", "--modes", "extra"), ("screens", "1", "--set-mode"),
                  ("screens", "1", "--set-mode", "12x"), ("screens", "1", "--set-mode", "maxx"),
                  ("screens", "1", "--set-mode", "0x1080"), ("screens", "1", "--set-mode", "max", "extra"), ("login", "--bogus"), ("login", "--enable", "extra"),
-                 ("hooks", "--bogus"), ("hooks", "--run", "extra"), ("--new", "login"), ("--new", "hooks")]
+                 ("hooks", "--bogus"), ("hooks", "--run", "extra"), ("--new", "login"), ("--new", "hooks"),
+                 ("--draw-mouse", "extra"), ("--no-draw-mouse", "--draw-mouse"), ("UWLeft", "--draw-mouse")]
         for args in cases:
             with self.subTest(args=args):
                 result = self.run_cli(*args)
@@ -289,6 +290,34 @@ class CLITests(unittest.TestCase):
                 self.assertEqual(config.read_text(), text)
         for args in (("--enable",), ("--enable", "../x"), ("--disable", "a", "b")):
             self.assertEqual(self.run_cli("hooks", *args).returncode, 2)
+
+
+    def test_draw_mouse_edits_config_without_resident_app(self):
+        root = pathlib.Path(self.directory.name)
+        config = root / "vs" / "config.yaml"
+        self.env.update(VSCREEN_LAYOUT_DIR=str(root / "vs" / "layout"), VSCREEN_CONFIG=str(config))
+        self.assertEqual(self.run_cli("--draw-mouse").returncode, 0)  # Creates the starter config.
+        self.assertTrue(config.read_text().startswith("# VScreen config."))
+        self.assertTrue(config.read_text().endswith("onDisplayChange:\ndrawMouse: true\n"))
+
+        config.write_text("# keep\ndrawMouse: maybe  # old\nonDisplayChange:\n  - record\n")
+        for _ in range(2):  # Setting it twice is a no-op.
+            self.assertEqual(self.run_cli("--no-draw-mouse").returncode, 0)
+        self.assertEqual(config.read_text(), "# keep\ndrawMouse: false\nonDisplayChange:\n  - record\n")
+        self.assertEqual(self.run_cli("--draw-mouse").returncode, 0)
+        self.assertEqual(config.read_text(), "# keep\ndrawMouse: true\nonDisplayChange:\n  - record\n")
+
+        config.write_text("onDisplayChange: [\n")  # Unparseable: left for the user to fix.
+        failed = self.run_cli("--draw-mouse")
+        self.assertEqual(failed.returncode, 1)
+        self.assertIn("by hand", failed.stderr)
+        self.assertEqual(config.read_text(), "onDisplayChange: [\n")
+        self.assertFalse((root / "control.sock").exists())
+
+        config.write_text("onDisplayChange:\n")  # A running app is told to reread the saved setting.
+        result = self.exchange(("--draw-mouse",), {"ok": True, "output": ""})
+        self.assertEqual((result.returncode, result.stdout, result.stderr), (0, "", ""))
+        self.assertEqual(config.read_text(), "onDisplayChange:\ndrawMouse: true\n")
 
 
 if __name__ == "__main__":

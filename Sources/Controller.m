@@ -69,6 +69,7 @@ NSArray<NSDictionary *> *VSSystemDisplays(void) {
     NSMutableSet<NSNumber *> *_ownedIDs;  // Every display this process created, kept after close.
     NSTimer *_hookTimer;
     BOOL _hooksRunning, _hooksPending;
+    BOOL _drawMouse;  // config.yaml drawMouse, applied to every desktop.
 }
 static void displaysReconfigured(CGDirectDisplayID display, CGDisplayChangeSummaryFlags flags, void *context) {
     if (flags & kCGDisplayBeginConfigurationFlag) [(__bridge VSController *)context displaysWillChange];
@@ -103,6 +104,14 @@ static void displaysReconfigured(CGDirectDisplayID display, CGDisplayChangeSumma
             [desktop.window orderOut:nil];
         }
     });
+}
+// Tests read the user's config only when they point VSCREEN_CONFIG at their own, as for hooks.
+- (NSDictionary *)reloadDrawMouse {
+    NSString *error = nil;
+    _drawMouse = [self hooksEnabled] && VSLoadDrawMouse(&error);
+    if (error) fprintf(stderr, "%s\n", error.UTF8String);
+    for (VSDesktop *desktop in _desktops.allValues) desktop.drawsCursor = _drawMouse;
+    return error ? VSFailure(error) : VSReply(@"");
 }
 - (BOOL)hooksEnabled {
     return !self.testMode || NSProcessInfo.processInfo.environment[@"VSCREEN_CONFIG"].length;
@@ -184,6 +193,7 @@ static OSStatus hotKey(EventHandlerCallRef handler, EventRef event, void *contex
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(screensChanged:)
         name:NSApplicationDidChangeScreenParametersNotification object:nil];
     if ([self hooksEnabled] && !VSEnsureConfig(&error)) fprintf(stderr, "%s\n", error.UTF8String);
+    [self reloadDrawMouse];
     if (self.launchHooks && [self hooksEnabled]) [self runHooks:@"launch"];
     signal(SIGINT, SIG_IGN); signal(SIGTERM, SIG_IGN);
     _interrupt = dispatch_source_create(DISPATCH_SOURCE_TYPE_SIGNAL, SIGINT, 0, dispatch_get_main_queue());
@@ -288,6 +298,7 @@ static OSStatus hotKey(EventHandlerCallRef handler, EventRef event, void *contex
                       "tccutil reset ScreenCapture local.vscreen")); return;
     }
     if ([action isEqual:@"login"]) { reply([self loginItem:command[@"enable"]]); return; }
+    if ([action isEqual:@"drawMouse"]) { reply([self reloadDrawMouse]); return; }
     if ([action isEqual:@"quit"]) {
         _quitting = YES;
         reply(VSReply(@""));
@@ -368,6 +379,7 @@ static OSStatus hotKey(EventHandlerCallRef handler, EventRef event, void *contex
     if (changes[@"borderColor"]) desktop.borderColor = changes[@"borderColor"];
     if (changes[@"shadow"]) desktop.window.hasShadow = [changes[@"shadow"] boolValue];
     if (changes[@"hiPerf"]) desktop.hiPerf = [changes[@"hiPerf"] boolValue];
+    desktop.drawsCursor = _drawMouse;
     _desktops[name] = desktop;
     __weak VSController *weakSelf = self;
     desktop.onClose = ^(VSDesktop *closed) {

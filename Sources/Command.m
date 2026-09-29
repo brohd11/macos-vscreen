@@ -24,6 +24,8 @@ NSString *VSUsage(void) {
       "  vscreen hooks --list             Hook scripts in ~/.vscreen/hooks: enabled, disabled, or missing\n"
       "  vscreen hooks --enable NAME      Add hook NAME to onDisplayChange (--disable NAME removes it)\n"
       "  vscreen hooks --run              Run the enabled hooks now, in this terminal\n"
+      "  vscreen --draw-mouse             Draw the pointer in previews at their refresh (saved in config.yaml)\n"
+      "  vscreen --no-draw-mouse          Show the captured pointer instead (default)\n"
       "  vscreen login [--enable|--disable]  Start VScreen at login and run hooks; bare shows status\n"
       "  vscreen generate PRESET          Write a preset's hooks and layouts (e.g. xreal-uw); never overwrites edits\n"
       "  vscreen generate --list          Available presets\n"
@@ -128,6 +130,8 @@ NSDictionary *VSParseCommand(NSArray<NSString *> *args, NSString **error) {
         if (error) *error = @"Invalid login command. Run vscreen --help.";
         return nil;
     }
+    if (([first isEqual:@"--draw-mouse"] || [first isEqual:@"--no-draw-mouse"]) && args.count == 1)
+        return @{@"action": @"drawMouse", @"enable": @([first isEqual:@"--draw-mouse"])};
     if ([first isEqual:@"--list"] && (args.count == 1 || (args.count == 2 && [args[1] isEqual:@"--json"])))
         return @{@"action": @"list", @"json": @(args.count == 2)};
     NSDictionary *simple = @{@"--screens": @"screens", @"--check": @"check", @"quit": @"quit", @"--quit": @"quit", @"--request-permissions": @"permissions"};

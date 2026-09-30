@@ -7,12 +7,17 @@
 #import "Hooks.h"
 #include <signal.h>
 
+#ifndef VS_VERSION
+#define VS_VERSION "unknown"
+#endif
+
 static int client(NSArray<NSString *> *arguments) {
     NSString *error = nil;
     NSDictionary *command = VSParseCommand(arguments, &error);
     if (!command) { fprintf(stderr, "%s\n", error.UTF8String); return 2; }
     NSString *action = command[@"action"];
     if ([action isEqual:@"help"]) { fputs(VSUsage().UTF8String, stdout); return 0; }
+    if ([action isEqual:@"version"]) { printf("vscreen %s\n", VS_VERSION); return 0; }
     if ([action isEqual:@"layout"]) return VSRunLayout(command);
     if ([action isEqual:@"generate"]) return VSGenerate(command);
     // Hooks call vscreen, so they must not run inside a request the app is still serving.

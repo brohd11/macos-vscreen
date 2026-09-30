@@ -21,6 +21,7 @@ vscreen UWLeft --close                # Close one tracked desktop
 vscreen 35 --close                    # Or use its current macOS display ID
 vscreen close                         # Close all tracked desktops; keep app running
 vscreen quit                          # Close desktops and stop the resident app
+vscreen --version                     # Build version from git describe (tag or commit)
 ```
 
 Settings may be combined on `--new NAME` or `NAME|ID`. Existing desktops can be targeted by their name or current macOS display ID; only VScreen-owned displays can be updated or closed. The one exception is `vscreen screens ID --set-mode`, which can change the mode of any display (see [Screen queries](screen-queries.md#display-modes)). **`--new NAME [settings]` creates the desktop if missing, or applies the supplied settings to the existing desktop without replacing its display ID.** Unspecified settings are preserved on existing desktops; a bare `--new NAME` is a no-op when it already exists. You can repeat the same create-and-configure commands to restore a layout.

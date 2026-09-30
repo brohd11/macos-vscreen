@@ -32,6 +32,7 @@ NSString *VSUsage(void) {
       "  vscreen --check                  Report the app's Screen Recording permission\n"
       "  vscreen --request-permissions    Request Screen Recording for VScreen\n"
       "  vscreen quit                     Close all owned desktops and stop app (alias: --quit)\n"
+      "  vscreen --version                Build version (git tag or commit)\n"
       "\nSettings (can be combined):\n"
       "  --resolution WxH  Virtual display pixels (480–7680 x 480–4320)\n"
       "  --size WxH        Preview content size in points (240–7680 x 135–4320)\n"
@@ -76,6 +77,7 @@ NSDictionary *VSParseCommand(NSArray<NSString *> *args, NSString **error) {
     }
     NSString *first = args.firstObject;
     if (args.count == 0 || ([first isEqual:@"--help"] && args.count == 1)) return @{@"action": @"help"};
+    if ([first isEqual:@"--version"] && args.count == 1) return @{@"action": @"version"};
     if ([first isEqual:@"screens"]) {
         if (args.count == 1) return @{@"action": @"screens"};
         NSString *option = args[1];

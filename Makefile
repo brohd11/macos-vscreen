@@ -9,6 +9,14 @@ YAML_LIB := build/libyaml.a
 # libyaml is vendored and statically linked, so the installed app has no runtime dependency on it.
 YAML_CFLAGS := -O2 -w -mmacosx-version-min=14.0 -IVendor/libyaml/include -DYAML_VERSION_MAJOR=0 \
 	-DYAML_VERSION_MINOR=2 -DYAML_VERSION_PATCH=5 -DYAML_VERSION_STRING='"0.2.5"'
+# Stamped into `vscreen --version`; override with `make VERSION=...`.
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo unknown)
+VERSION_STAMP := build/version.txt
+# When the version differs from the last build's, drop the binary so it relinks. This runs at parse
+# time because make 3.81 compares whole-second mtimes and would miss a stamp rewritten mid-build.
+ifneq ($(VERSION),$(shell cat $(VERSION_STAMP) 2>/dev/null))
+$(shell mkdir -p build && echo '$(VERSION)' > $(VERSION_STAMP) && rm -f $(BIN))
+endif
 FRAMEWORKS := -framework Cocoa -framework CoreGraphics -framework ScreenCaptureKit -framework AVFoundation -framework CoreMedia -framework Carbon -framework ServiceManagement
 
 .PHONY: all run test integration install clean
@@ -26,7 +34,7 @@ $(YAML_LIB): $(YAML_OBJECTS)
 
 $(BIN): $(SOURCES) $(wildcard Sources/*.h) $(YAML_LIB) Resources/Info.plist $(ICONS) $(PRESETS) Makefile
 	mkdir -p $(APP)/Contents/MacOS $(APP)/Contents/Resources
-	xcrun clang $(CFLAGS) -IVendor/libyaml/include $(foreach a,$(ARCHS),-arch $(a)) $(SOURCES) $(YAML_LIB) $(FRAMEWORKS) -o $@
+	xcrun clang $(CFLAGS) -DVS_VERSION='"$(VERSION)"' -IVendor/libyaml/include $(foreach a,$(ARCHS),-arch $(a)) $(SOURCES) $(YAML_LIB) $(FRAMEWORKS) -o $@
 	cp Resources/Info.plist $(APP)/Contents/Info.plist
 	cp $(ICONS) $(APP)/Contents/Resources/
 	rm -rf $(APP)/Contents/Resources/presets && cp -R presets $(APP)/Contents/Resources/

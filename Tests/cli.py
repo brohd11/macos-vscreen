@@ -28,6 +28,11 @@ class CLITests(unittest.TestCase):
         self.assertIn("--origin", result.stdout)
         self.assertNotIn("Accessibility", result.stdout)
 
+    def test_version(self):
+        result = self.run_cli("--version")
+        self.assertEqual(result.returncode, 0)
+        self.assertRegex(result.stdout, r"\Avscreen \S+\n\Z")
+
     def test_invalid_arguments_fail_before_launch(self):
         cases = [("--new",), ("--new", "has spaces"), ("--new", "--quit"),
                  ("--new", "9starts-with-digit"), ("--new", "../escape"),
@@ -37,7 +42,7 @@ class CLITests(unittest.TestCase):
                  ("UWLeft", "--origin", "999999999999999999999x0"),
                  ("UWLeft", "--size"), ("UWLeft", "--titled", "--borderless"),
                  ("UWLeft", "--position", "0x0", "--position", "1x1"),
-                 ("--close", "Good", "bad name"), ("--list", "--close"), ("--unknown",),
+                 ("--close", "Good", "bad name"), ("--list", "--close"), ("--unknown",), ("--version", "extra"),
                  ("screens", "--find"), ("screens", "--find", ""), ("screens", "--main", "extra"),
                  ("screens", "--list", "--json"), ("screens", "0", "--origin"),
                  ("screens", "-1"), ("screens", "4294967296"), ("screens", "1junk"),

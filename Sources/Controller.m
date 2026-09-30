@@ -242,7 +242,9 @@ static OSStatus hotKey(EventHandlerCallRef handler, EventRef event, void *contex
     if (result == kCGErrorSuccess) result = CGCompleteDisplayConfiguration(config, kCGConfigureForSession);
     else if (config) CGCancelDisplayConfiguration(config);
     if (result == kCGErrorSuccess) {
-        if (main) [self awaitMain:display attempts:30 completion:completion]; else completion(nil);
+        // Without --main, macOS may still switch main (it restores a remembered arrangement when a
+        // known virtual connects), so wait for AppKit to agree on whichever display is main.
+        [self awaitMain:main ? display : CGMainDisplayID() attempts:30 completion:completion];
         return;
     }
     if (attempts > 1) {
@@ -389,9 +391,10 @@ static OSStatus hotKey(EventHandlerCallRef handler, EventRef event, void *contex
     BOOL main = [changes[@"main"] boolValue];
     [self configure:desktop origin:origin main:main attempts:30 completion:^(NSString *failure) {
         if (failure) { [self->_desktops removeObjectForKey:name]; [desktop stop]; reply(VSFailure(failure)); return; }
-        // --position was given before the shift, so move it with the displays.
-        if (main) [desktop.window setFrame:[desktop.window frameRectForContentRect:
-            previewRect(arrayPoint(shifted(pointArray(position), origin)), size)] display:NO];
+        // Reapply --position in the settled coordinates: the window kept its AppKit frame if macOS
+        // switched main meanwhile. With --main, the position was given before the shift, so move it too.
+        CGPoint target = main ? arrayPoint(shifted(pointArray(position), origin)) : position;
+        [desktop.window setFrame:[desktop.window frameRectForContentRect:previewRect(target, size)] display:NO];
         BOOL visible = changes[@"visible"] ? [changes[@"visible"] boolValue] : YES;
         [self capture:desktop visible:visible completion:^(NSError *captureError) {
             if (captureError) {

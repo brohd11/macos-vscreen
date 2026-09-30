@@ -22,13 +22,38 @@ def screens():
     return {item["id"]: item for item in json.loads(run("--screens").stdout)}
 
 
-def wait_for(predicate, seconds=10):
+def wait_for(predicate, seconds=10, describe=None):
     deadline = time.monotonic() + seconds
     while time.monotonic() < deadline:
         if predicate():
             return
         time.sleep(0.1)
-    raise AssertionError("Timed out waiting for expected state")
+    raise AssertionError("Timed out waiting for expected state" + (f": {describe()}" if describe else ""))
+
+
+def same_shape(actual, expected):
+    """Same displays and sizes, origins shifted by one common offset, and some display main at 0x0."""
+    if actual.keys() != expected.keys() or not actual:
+        return False
+    i = next(iter(expected))
+    dx, dy = (actual[i]["origin"][0] - expected[i]["origin"][0], actual[i]["origin"][1] - expected[i]["origin"][1])
+    for i, want in expected.items():
+        got = actual[i]
+        if got["size"] != want["size"] or got["origin"] != [want["origin"][0] + dx, want["origin"][1] + dy]:
+            return False
+    return any(s["main"] and s["origin"] == [0, 0] for s in actual.values())
+
+
+def screen_diff(expected):
+    """Fields that differ between expected and current screens, per display ID."""
+    actual = screens()
+    diff = {}
+    for i in expected.keys() | actual.keys():
+        want, got = expected.get(i, {}), actual.get(i, {})
+        fields = {k: (want.get(k), got.get(k)) for k in want.keys() | got.keys() if want.get(k) != got.get(k)}
+        if fields:
+            diff[i] = fields
+    return f"(expected, actual) by display: {diff}"
 
 
 def host_ready(directory, pid):
@@ -147,10 +172,15 @@ with tempfile.TemporaryDirectory(prefix="vs-integration-", dir="/tmp") as direct
             assert shown["visible"] is True and shown["position"] == guest_position, shown
             run("Guest", "--close", env=env)
             # --main moves the virtual to 0x0 and every other display by the same amount; closing it hands main back.
+            # macOS remembers arrangements per display set and may apply one when Primary (a stable serial) connects
+            # or disconnects, so which display ends up main varies; the displays' shape relative to each other doesn't.
+            baseline = screens()
             run("--new", "Primary", "--resolution", "800x600", "--size", "240x135", "--position", "50x60", env=env)
             arranged = screens()
             primary = json.loads(run("Primary", env=env).stdout)
             assert primary["main"] is False, primary
+            # Even if macOS switched main as Primary connected, the preview keeps the requested position.
+            assert primary["position"] == [50, 60], primary
             run("Primary", "--main", env=env)
             promoted = json.loads(run("Primary", env=env).stdout)
             assert promoted["main"] is True and promoted["origin"] == [0, 0], promoted
@@ -163,7 +193,7 @@ with tempfile.TemporaryDirectory(prefix="vs-integration-", dir="/tmp") as direct
             run("Primary", "--main", env=env)  # Already main: nothing moves.
             assert {i: s["origin"] for i, s in screens().items()} == shifted
             run("Primary", "--close", env=env)
-            wait_for(lambda: screens() == {i: s for i, s in arranged.items() if i != primary["id"]})
+            wait_for(lambda: same_shape(screens(), baseline), describe=lambda: screen_diff(baseline))
             # In one --new, --origin and --position are read before the shift as well.
             right_edge = max(s["origin"][0] + s["size"][0] for s in screens().values())
             run("--new", "Primary", "--resolution", "800x600", "--size", "240x135", "--position", "50x60",
@@ -172,7 +202,7 @@ with tempfile.TemporaryDirectory(prefix="vs-integration-", dir="/tmp") as direct
             assert created["main"] is True and created["origin"] == [0, 0], created
             assert created["position"] == [50 - right_edge, 60], created
             run("Primary", "--close", env=env)
-            wait_for(lambda: screens() == {i: s for i, s in arranged.items() if i != primary["id"]})
+            wait_for(lambda: same_shape(screens(), baseline), describe=lambda: screen_diff(baseline))
             run("--new", "Race", "--resolution", "800x600", "--hide", env=env)
             run("close", env=env)
             assert run("--list", env=env).stdout == ""

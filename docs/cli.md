@@ -35,7 +35,7 @@ Names start with a letter or underscore, followed by letters, digits, `_`, `.`, 
 | `--size WxH` | Preview content size; 240–7680 wide, 135–4320 high |
 | `--position XxY` | Preview content position in the global desktop coordinate system |
 | `--origin XxY` | Virtual display position in macOS's display arrangement |
-| `--main` | Make this virtual the main display (menu bar, Dock, new windows). Every display shifts by the same amount, so the arrangement keeps its shape; `--origin` and `--position` in the same command are read before that shift, and the preview moves with the displays so it stays on the same screen. When the virtual closes, macOS picks a new main |
+| `--main` | Make this virtual the main display (menu bar, Dock, new windows). Every display shifts by the same amount, so the arrangement keeps its shape; `--origin` and `--position` in the same command are read before that shift, and the preview moves with the displays so it stays on the same screen. When the virtual closes, macOS picks a new main. macOS remembers an arrangement for each set of connected displays, and a VScreen display is recognized by its name, so creating or closing any desktop can make macOS reapply one. The displays keep their shape relative to each other, but a different one may be main; a new preview still lands at its `--position` |
 | `--borderless` / `--titled` | Hide/show title bar and traffic lights |
 | `--hide` / `--show` | Hide/show the preview while keeping its display connected. A preview whose screen disconnects hides itself in place; `--show` restores it |
 | `--border-color '#RRGGBB'` / `--border-color none` | Optional one-pixel preview edge; default none |

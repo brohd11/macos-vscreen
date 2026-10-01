@@ -32,6 +32,22 @@ vscreen --list                                                 # Names of owned 
 vscreen Desktop1 --close                                       # Remove it
 ```
 
+### XREAL Glasses
+
+[Install+Setup Video Walkthrough](https://youtu.be/Gno6D7LTkmU)
+
+XREAL use can be set up with these commands after setting up permissions. See the documentation for more info.
+```sh
+vscreen generate xreal-uw
+vscreen hooks --enable xreal-uw
+vscreen login --enable
+vscreen quit
+open /Application/VScreen.app
+```
+
+## Known Issues
+- macOS screen capture causes spotlight search and the apps menu to have an opaque black background. This is on the macOS screen capture level, not this app.
+
 ## Documentation
 
 - [Building](docs/building.md) — build targets and signing identity
